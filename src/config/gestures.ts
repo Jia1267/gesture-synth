@@ -29,18 +29,17 @@ export const gestureLabels: Record<GestureId, string> = {
 
 /** Recognition thresholds and timing. Tune these against real-hand recordings (?rec). */
 export const recognition = {
-  /**
-   * A finger counts as up when its knuckle→tip direction is within this many degrees of the
-   * palm's wrist→knuckle direction. Deliberately straight ≈ 10–25°, relaxed/cupped ≈ 50–65°.
+  /*
+   * Thresholds below are set from a real-hand ?rec recording (2026-09-29, ~36 fps):
+   * straight fingers 5–45°, bent fingers 93–160°, mid-change shapes 63–88°;
+   * thumb folded (4, and 3 holding the pinky) ≤ 0.47 palm, thumb out (5, 6) ≥ 1.16.
    */
+  /** A finger counts as up when its knuckle→tip direction is within this many degrees of the palm's. */
   upMaxDeg: 60,
-  /** For a fist (which stops the music) every finger must bend past this. Loose curls ≈ 70–90°. */
-  fistMinDeg: 95,
-  /**
-   * Thumb-tip to pinky-knuckle distance within the palm plane (in palm lengths) above which
-   * the thumb counts as out. Separates 4 (thumb folded, ≈0.4) from 5 (thumb out, ≈0.9–1.4).
-   */
-  thumbOut: 0.7,
+  /** For a fist (which stops the music) every finger must bend past this — above mid-change shapes. */
+  fistMinDeg: 90,
+  /** Thumb-tip to pinky-knuckle distance within the palm plane (palm lengths) above which the thumb is out. */
+  thumbOut: 0.8,
   /** A new sign takes over once this many of the last 4 recognized frames agree… */
   minFrames: 3,
   /** …spanning at least this long, so 60 fps cameras don't react to in-between shapes. */

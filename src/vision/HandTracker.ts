@@ -178,8 +178,8 @@ export class HandTracker {
    * player's left holds the volume. Position is predictable; the model's Left/Right label is not.
    */
   private assignRoles(hands: Track[]) {
-    if (hands.length === 1) {
-      hands[0].role = 'right'
+    if (hands.length < 2) {
+      if (hands[0]) hands[0].role = 'right'
       return
     }
     // Raw webcam frames are unmirrored, so larger x = further to the player's left.

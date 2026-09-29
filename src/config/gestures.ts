@@ -1,4 +1,5 @@
-export type GestureId = 'index' | 'peace' | 'threeFingers' | 'openPalm' | 'fist' | 'ok' | 'shaka'
+/** Chinese finger-counting signs. */
+export type GestureId = 'one' | 'two' | 'three' | 'four' | 'five' | 'zero' | 'six'
 export type NoteName = 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B'
 
 /**
@@ -9,23 +10,23 @@ export type NoteName = 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B'
  * Reassign freely — the guide re-orders itself from this object.
  */
 export const gestureMappings: Record<GestureId, NoteName> = {
-  index: 'C',
-  peace: 'D',
-  threeFingers: 'E',
-  openPalm: 'F',
-  fist: 'G',
-  ok: 'A',
-  shaka: 'B',
+  one: 'C',
+  two: 'D',
+  three: 'E',
+  four: 'F',
+  five: 'G',
+  zero: 'A',
+  six: 'B',
 }
 
 export const gestureLabels: Record<GestureId, string> = {
-  index: 'Index finger',
-  peace: 'Index + middle',
-  threeFingers: 'Three fingers',
-  openPalm: 'Open palm',
-  fist: 'Closed fist',
-  ok: 'OK sign',
-  shaka: 'Thumb + pinky',
+  one: '1 — index finger',
+  two: '2 — index + middle',
+  three: '3 — index, middle, ring',
+  four: '4 — four fingers, thumb folded',
+  five: '5 — open hand',
+  zero: '0 — fist',
+  six: '6 — thumb + pinky',
 }
 
 /** Timing and geometry thresholds for the recognizer. */
@@ -37,12 +38,15 @@ export const recognition = {
   stableMs: 100,
   /** The same gesture cannot fire again within this window. */
   cooldownMs: 200,
-  /** Finger is "extended" when MCP→tip distance / finger path length exceeds this. */
-  straightness: 0.8,
-  /** …and the tip is this much farther from the wrist than the PIP joint. */
-  reachRatio: 1.1,
-  /** Thumb-tip to index-tip distance (in palm lengths) that counts as a pinch. */
-  pinch: 0.3,
-  /** Thumb-tip to middle-knuckle distance (in palm lengths) that counts as "thumb out". */
-  thumbOut: 0.75,
+  /**
+   * A finger counts as extended when its knuckle→tip direction is within this many degrees
+   * of the palm's wrist→knuckle direction. Deliberately straight ≈ 10–25°, loosely curled
+   * ≈ 70°+, fist > 120°; a relaxed, cupped hand sits around 50–65°.
+   */
+  maxBend: 60,
+  /**
+   * Thumb-tip to pinky-knuckle distance within the palm plane (in palm lengths) above which
+   * the thumb counts as out. Separates 4 (thumb folded, ≈0.4) from 5 (thumb out, ≈0.9–1.4).
+   */
+  thumbOut: 0.7,
 }

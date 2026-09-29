@@ -16,11 +16,38 @@ const FINGERS = {
   pinky: [17, 18, 19, 20],
 } as const
 
-function isExtended(p: Point3[], [mcp, pip, dip, tip]: readonly number[]) {
-  const path = dist(p[mcp], p[pip]) + dist(p[pip], p[dip]) + dist(p[dip], p[tip])
-  const straight = dist(p[mcp], p[tip]) / path > recognition.straightness
-  const reaches = dist(p[0], p[tip]) > dist(p[0], p[pip]) * recognition.reachRatio
-  return straight && reaches
+const sub = (a: Point3, b: Point3): Point3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z })
+const dot = (a: Point3, b: Point3) => a.x * b.x + a.y * b.y + a.z * b.z
+const cross = (a: Point3, b: Point3): Point3 => ({
+  x: a.y * b.z - a.z * b.y,
+  y: a.z * b.x - a.x * b.z,
+  z: a.x * b.y - a.y * b.x,
+})
+
+/**
+ * Thumb tip → pinky knuckle distance measured within the palm plane, so a thumb bent
+ * forward over the palm (toward the camera) still counts as folded.
+ */
+function thumbSpread(p: Point3[]) {
+  const normal = cross(sub(p[5], p[0]), sub(p[17], p[0]))
+  const v = sub(p[4], p[17])
+  const off = dot(v, normal) / dot(normal, normal)
+  return Math.hypot(v.x - normal.x * off, v.y - normal.y * off, v.z - normal.z * off)
+}
+
+/** Angle in degrees between two vectors. */
+function angle(a: Point3, b: Point3) {
+  const cos = (a.x * b.x + a.y * b.y + a.z * b.z) / (Math.hypot(a.x, a.y, a.z) * Math.hypot(b.x, b.y, b.z))
+  return (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI
+}
+
+/**
+ * A finger is extended when it carries on roughly in the palm's direction. Bending at any
+ * knuckle swings the knuckle→tip direction away from the wrist→knuckle line, so loosely
+ * curled fingers don't pass as extended.
+ */
+function isExtended(p: Point3[], [mcp, , , tip]: readonly number[]) {
+  return angle(sub(p[mcp], p[0]), sub(p[tip], p[mcp])) < recognition.maxBend
 }
 
 /**
@@ -33,16 +60,14 @@ export function classifyGesture(p: Point3[]): GestureId | null {
   const middle = isExtended(p, FINGERS.middle)
   const ring = isExtended(p, FINGERS.ring)
   const pinky = isExtended(p, FINGERS.pinky)
-  const pinch = dist(p[4], p[8]) < palm * recognition.pinch
-  const thumbOut = dist(p[4], p[9]) > palm * recognition.thumbOut && dist(p[4], p[5]) > palm * 0.5
+  const thumbOut = thumbSpread(p) > palm * recognition.thumbOut
 
-  if (pinch && middle && ring) return 'ok'
-  if (pinky && thumbOut && !index && !middle && !ring) return 'shaka'
-  if (index && middle && ring && pinky) return 'openPalm'
-  if (index && middle && ring && !pinky) return 'threeFingers'
-  if (index && middle && !ring && !pinky) return 'peace'
-  if (index && !middle && !ring && !pinky) return 'index'
-  if (!index && !middle && !ring && !pinky) return 'fist'
+  if (index && middle && ring && pinky) return thumbOut ? 'five' : 'four'
+  if (pinky && thumbOut && !index && !middle && !ring) return 'six'
+  if (index && middle && ring && !pinky) return 'three'
+  if (index && middle && !ring && !pinky) return 'two'
+  if (index && !middle && !ring && !pinky) return 'one'
+  if (!index && !middle && !ring && !pinky) return 'zero'
   return null
 }
 

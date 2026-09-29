@@ -20,15 +20,20 @@ Open the printed localhost URL (camera access needs `localhost` or `https`), cli
 
 ## Gestures
 
-| Gesture            | Left hand: key | Right hand: syllable |
-| ------------------ | -------------- | -------------------- |
-| Index finger       | C              | Do                   |
-| Index + middle     | D              | Re                   |
-| Index+middle+ring  | E              | Mi                   |
-| Open palm          | F              | Fa                   |
-| Closed fist        | G              | Sol                  |
-| OK sign            | A              | La                   |
-| Thumb + pinky      | B              | Ti                   |
+Gestures are Chinese finger-counting signs:
+
+| Sign | Hand shape                          | Left hand: key | Right hand: syllable |
+| ---- | ----------------------------------- | -------------- | -------------------- |
+| 1    | index finger                        | C              | Do                   |
+| 2    | index + middle                      | D              | Re                   |
+| 3    | index + middle + ring               | E              | Mi                   |
+| 4    | four fingers, thumb folded in palm  | F              | Fa                   |
+| 5    | open hand, thumb out                | G              | Sol                  |
+| 0    | fist                                | A              | La                   |
+| 6    | thumb + pinky                       | B              | Ti                   |
+
+Hold fingers clearly straight or clearly folded — a relaxed, half-cupped hand is
+deliberately ignored so it doesn't play stray notes.
 
 A pose must be held ~100 ms before it counts. The left hand switches the key silently
 and the key stays until you pick another one; the right hand plays once per pose —

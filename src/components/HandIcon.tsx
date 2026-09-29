@@ -6,18 +6,16 @@ type Finger = 'index' | 'middle' | 'ring' | 'pinky'
 interface Pose {
   up: Finger[]
   thumb: 'out' | 'in'
-  /** Thumb and index meet in a ring. */
-  ring?: boolean
 }
 
 const POSES: Record<GestureId, Pose> = {
-  index: { up: ['index'], thumb: 'in' },
-  peace: { up: ['index', 'middle'], thumb: 'in' },
-  threeFingers: { up: ['index', 'middle', 'ring'], thumb: 'in' },
-  openPalm: { up: ['index', 'middle', 'ring', 'pinky'], thumb: 'out' },
-  fist: { up: [], thumb: 'in' },
-  ok: { up: ['middle', 'ring', 'pinky'], thumb: 'out', ring: true },
-  shaka: { up: ['pinky'], thumb: 'out' },
+  one: { up: ['index'], thumb: 'in' },
+  two: { up: ['index', 'middle'], thumb: 'in' },
+  three: { up: ['index', 'middle', 'ring'], thumb: 'in' },
+  four: { up: ['index', 'middle', 'ring', 'pinky'], thumb: 'in' },
+  five: { up: ['index', 'middle', 'ring', 'pinky'], thumb: 'out' },
+  zero: { up: [], thumb: 'in' },
+  six: { up: ['pinky'], thumb: 'out' },
 }
 
 /** [baseX, baseY, tipX, tipY, foldedTipY, width] in a 32×32 box, palm facing the viewer. */
@@ -34,23 +32,16 @@ const PALM = { x: 8.6, y: 14.6, width: 15.8, height: 11.4, rx: 3.6 }
 export function HandIcon({ gesture, className }: { gesture: GestureId; className?: string }) {
   const clipId = useId()
   const pose = POSES[gesture]
-  const fingers = (Object.keys(FINGERS) as Finger[]).filter((f) => !(pose.ring && f === 'index'))
 
   return (
     <svg className={className} viewBox="0 0 32 32" aria-hidden="true" strokeLinecap="round" fill="none">
-      {fingers.map((f) => {
+      {(Object.keys(FINGERS) as Finger[]).map((f) => {
         const [bx, by, tx, ty, foldedY, w] = FINGERS[f]
         const up = pose.up.includes(f)
         return <line key={f} x1={bx} y1={by} x2={up ? tx : bx} y2={up ? ty : foldedY} stroke="currentColor" strokeWidth={w} />
       })}
 
-      {pose.thumb === 'out' &&
-        (pose.ring ? (
-          <line x1={10.6} y1={22} x2={6.4} y2={15.6} stroke="currentColor" strokeWidth={3} />
-        ) : (
-          <line x1={11.5} y1={23} x2={4.2} y2={15.4} stroke="currentColor" strokeWidth={3.3} />
-        ))}
-      {pose.ring && <circle cx={7.6} cy={12.2} r={3.4} stroke="currentColor" strokeWidth={2.6} />}
+      {pose.thumb === 'out' && <line x1={11.5} y1={23} x2={4.2} y2={15.4} stroke="currentColor" strokeWidth={3.3} />}
 
       <rect {...PALM} fill="currentColor" />
       <rect x={11.2} y={24} width={10.4} height={6} rx={1.6} fill="currentColor" />

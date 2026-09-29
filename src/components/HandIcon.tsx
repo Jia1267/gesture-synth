@@ -16,6 +16,7 @@ const POSES: Record<GestureId, Pose> = {
   five: { up: ['index', 'middle', 'ring', 'pinky'], thumb: 'out' },
   zero: { up: [], thumb: 'in' },
   six: { up: ['pinky'], thumb: 'out' },
+  seven: { up: ['index', 'pinky'], thumb: 'out' },
 }
 
 /** [baseX, baseY, tipX, tipY, foldedTipY, width] in a 32×32 box, palm facing the viewer. */

@@ -305,14 +305,29 @@ body {
   list-style: none;
 }
 
+.guide__head,
+.guide__row {
+  display: grid;
+  grid-template-columns: 20px 28px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px 0 16px;
+}
+
+.guide__head {
+  margin-bottom: 2px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.guide__head span:last-child {
+  grid-column: 3 / 5;
+}
+
 .guide__row {
   position: relative;
-  display: grid;
-  grid-template-columns: 30px 1fr auto;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px 0 16px;
-  height: 38px;
+  height: 34px;
   border-radius: 5px;
   color: var(--text-dim);
   transition: background-color 120ms ease, box-shadow 120ms ease;
@@ -329,6 +344,28 @@ body {
   transition: opacity 120ms ease, transform 160ms var(--ease-out);
 }
 
+/* Left-hand column: the key this sign selects. */
+.guide__key {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.guide__key[data-current] {
+  color: var(--gold);
+  box-shadow: inset 0 0 0 1px var(--gold-line);
+}
+
+.guide__key[data-held] {
+  background: var(--gold);
+  color: #17130a;
+}
+
 .guide__chord {
   font-size: 15px;
   font-weight: 500;
@@ -337,8 +374,8 @@ body {
 
 /* Opaque color + group opacity, so overlapping shapes don't stack into brighter spots. */
 .guide__icon {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   color: #fff;
   opacity: 0.72;
 }
@@ -409,6 +446,15 @@ body {
   bottom: calc(var(--wave-bottom) + var(--wave-height) - 10px);
   z-index: 3;
   pointer-events: none;
+}
+
+.current-note__key {
+  margin-bottom: 6px;
+  font-size: clamp(16px, 1.6vw, 22px);
+  text-align: right;
+  color: var(--gold);
+  opacity: 0.55;
+  animation: note-hit 200ms var(--ease-out);
 }
 
 .current-note__inner {
@@ -573,7 +619,7 @@ body {
   }
 
   .guide__row {
-    height: 34px;
+    height: 30px;
     gap: 8px;
   }
 }

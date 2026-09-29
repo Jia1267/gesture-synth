@@ -62,6 +62,7 @@ export function classifyGesture(p: Point3[]): GestureId | null {
 
   if (index && middle && ring && pinky) return thumbOut ? 'five' : 'four'
   if (pinky && thumbOut && !index && !middle && !ring) return 'six'
+  if (index && pinky && thumbOut && !middle && !ring) return 'seven'
   if (index && middle && ring && !pinky) return 'three'
   if (index && middle && !ring && !pinky) return 'two'
   if (index && !middle && !ring && !pinky) return 'one'

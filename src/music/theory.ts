@@ -33,17 +33,26 @@ export const midiToHz = (midi: number) => 440 * 2 ** ((midi - 69) / 12)
 export type Lean = 'none' | 'out' | 'in'
 
 export interface Chord {
-  /** e.g. "Am", "E", "F♯m". */
+  /** e.g. "Am", "E", "F♯m", "B°". */
   name: string
-  /** Jianpu digit 1–6. */
+  /** Jianpu digit 1–7. */
   digit: number
   syllable: string
   /** Root, third, fifth as MIDI notes. */
   notes: [number, number, number]
 }
 
-/** In a major key the chords on degrees 2, 3 and 6 are minor. */
-const DIATONIC_MINOR = new Set([1, 2, 5])
+type Quality = 'major' | 'minor' | 'dim'
+
+/** Chord quality on each degree of a major key: I ii iii IV V vi vii°. */
+const DIATONIC: Quality[] = ['major', 'minor', 'minor', 'major', 'major', 'minor', 'dim']
+
+/** Semitones above the root for the third and fifth, and the name suffix. */
+const SHAPES: Record<Quality, [number, number, string]> = {
+  major: [4, 7, ''],
+  minor: [3, 7, 'm'],
+  dim: [3, 6, '°'],
+}
 
 /**
  * Fold a note into F3–E4: the chord sits under the singer, and notes shared by two
@@ -51,14 +60,15 @@ const DIATONIC_MINOR = new Set([1, 2, 5])
  */
 const fold = (midi: number) => 53 + ((((midi - 53) % 12) + 12) % 12)
 
-/** The triad on `degree` (0-based) of `key`; leaning overrides whether it is major or minor. */
+/** The triad on `degree` (0-based) of `key`; leaning out forces major, leaning in forces minor. */
 export function chordFor(degree: number, key: NoteName, lean: Lean): Chord {
   const root = pitchFor(KEYS[degree], key)
-  const minor = lean === 'in' || (lean === 'none' && DIATONIC_MINOR.has(degree))
+  const quality = lean === 'out' ? 'major' : lean === 'in' ? 'minor' : DIATONIC[degree]
+  const [third, fifth, suffix] = SHAPES[quality]
   return {
-    name: root.name + (minor ? 'm' : ''),
+    name: root.name + suffix,
     digit: degree + 1,
     syllable: root.syllable,
-    notes: [fold(root.midi), fold(root.midi + (minor ? 3 : 4)), fold(root.midi + 7)],
+    notes: [fold(root.midi), fold(root.midi + third), fold(root.midi + fifth)],
   }
 }

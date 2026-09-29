@@ -16,7 +16,7 @@ const LOST_GRACE_MS = 1000
 /** Max wrist travel between frames, in normalized units, to count as the same hand. */
 const MATCH_RADIUS = 0.25
 
-/** The player's own left or right hand. The right hand plays; the left hand holds the volume. */
+/** The player's own left or right hand. The right hand plays; the left hand sets key and volume. */
 export type HandRole = 'left' | 'right'
 export type ActiveGestures = Record<HandRole, GestureId[]>
 
@@ -44,6 +44,11 @@ interface Track extends TrackedHand {
   lean: Lean
   leanPending: { to: Lean; since: number } | null
   gripSince: number | null
+  /** Smoothed model vote that this is the player's right hand, 0–1. */
+  rightness: number
+  /** Left hand: the unbroken run of one raw sign, and the sign whose key was last sent. */
+  keyRun: { sign: GestureId; since: number } | null
+  keySent: GestureId | null
 }
 
 /** Runs MediaPipe on a video element every new frame and turns hands into musical events. */
@@ -52,6 +57,8 @@ export class HandTracker {
   onTrigger: (gesture: GestureId, hand: HandRole, lean: Lean) => void = () => {}
   /** The right hand's lean changed. */
   onLean: (lean: Lean) => void = () => {}
+  /** The left hand has held a number sign for `keyHoldMs`: switch to that key. */
+  onKey: (gesture: GestureId) => void = () => {}
   /** Left fist holding the volume: wrist height (0 = top … 1 = bottom) every frame; null on release. */
   onGrip: (y: number | null) => void = () => {}
   /** A hand that was holding a sign has been out of sight for LOST_GRACE_MS. */
@@ -121,7 +128,7 @@ export class HandTracker {
     const unmatched = new Set(this.tracks)
     const tSec = now / 1000
 
-    const seen = result.landmarks.map((raw) => {
+    const seen = result.landmarks.map((raw, i) => {
       const track = this.match(raw[0], unmatched) ?? this.createTrack()
       unmatched.delete(track)
       track.lastSeen = now
@@ -130,6 +137,8 @@ export class HandTracker {
         x: track.filters[j * 2].filter(p.x, tSec),
         y: track.filters[j * 2 + 1].filter(p.y, tSec),
       }))
+      const saysRight = result.handedness[i]?.[0]?.categoryName === 'Right' ? 1 : 0
+      track.rightness += 0.3 * (saysRight - track.rightness)
       return track
     })
     this.assignRoles(seen)
@@ -141,6 +150,7 @@ export class HandTracker {
       track.seen = track.stabilizer.seen
       this.updateLean(track, now)
       this.updateGrip(track, raw, now)
+      this.updateKey(track, raw, now)
       if (fired) {
         track.pulseAt = now
         this.onTrigger(fired, track.role, track.lean)
@@ -174,18 +184,36 @@ export class HandTracker {
   }
 
   /**
-   * One hand in view is the playing hand, whichever it is. With two, the one further to the
-   * player's left holds the volume. Position is predictable; the model's Left/Right label is not.
+   * Roles come from MediaPipe's Left/Right label, smoothed over frames. On raw webcam frames it
+   * reported the true hand in 3053 of 3062 recorded frames (?rec, 2026-09-29). If both hands
+   * claim the same side, position decides.
    */
   private assignRoles(hands: Track[]) {
-    if (hands.length < 2) {
-      if (hands[0]) hands[0].role = 'right'
+    for (const hand of hands) hand.role = hand.rightness > 0.5 ? 'right' : 'left'
+    if (hands.length === 2 && hands[0].role === hands[1].role) {
+      // Raw webcam frames are unmirrored, so larger x = further to the player's left.
+      const [left, right] = hands[0].points[0].x > hands[1].points[0].x ? hands : [hands[1], hands[0]]
+      left.role = 'left'
+      right.role = 'right'
+    }
+  }
+
+  /**
+   * A left-hand number sign seen continuously for `keyHoldMs` switches the key (once per hold).
+   * Uses this frame's raw shape, not the sticky sign, so a hand that relaxes never commits.
+   */
+  private updateKey(track: Track, raw: GestureId | null, now: number) {
+    if (track.role !== 'left' || !raw || raw === 'zero') {
+      track.keyRun = null
       return
     }
-    // Raw webcam frames are unmirrored, so larger x = further to the player's left.
-    const [left, right] = hands[0].points[0].x > hands[1].points[0].x ? hands : [hands[1], hands[0]]
-    left.role = 'left'
-    right.role = 'right'
+    if (track.keyRun?.sign !== raw) {
+      track.keyRun = { sign: raw, since: now }
+      return
+    }
+    if (raw === track.keySent || now - track.keyRun.since < recognition.keyHoldMs) return
+    track.keySent = raw
+    this.onKey(raw)
   }
 
   /** Right hand leaning past a wide dead zone, held briefly, forces a major or minor chord. */
@@ -270,6 +298,9 @@ export class HandTracker {
       lean: 'none',
       leanPending: null,
       gripSince: null,
+      rightness: 0.5,
+      keyRun: null,
+      keySent: null,
     }
     this.tracks.push(track)
     return track

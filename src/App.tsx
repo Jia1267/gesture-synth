@@ -9,7 +9,7 @@ import { Landing } from './components/Landing'
 import { Recorder } from './components/Recorder'
 import { WaveformVisualizer } from './components/WaveformVisualizer'
 import { gestureDigits, type NoteName } from './config/gestures'
-import { chordFor, type Chord, type Lean } from './music/theory'
+import { chordFor, KEYS, type Chord, type Lean } from './music/theory'
 import { HandTracker, type ActiveGestures } from './vision/HandTracker'
 
 type Phase = 'landing' | 'starting' | 'live'
@@ -82,18 +82,24 @@ export default function App() {
     setCurrent((c) => ({ chord, hit: (c?.hit ?? 0) + 1 }))
   }
 
-  /** Leaning while a chord sounds swaps only its third; the root and fifth keep ringing. */
+  /** Leaning while a chord sounds re-voices only the notes that change (usually just the third). */
   function relean(audio: AudioEngine, lean: Lean) {
     const s = sounding.current
     if (!s || s.lean === lean) return
     const chord = chordFor(s.degree, s.key, lean)
-    if (chord.notes[1] !== s.notes[1]) {
-      s.voices[1].release()
-      s.voices[1] = audio.play(settings.current.instrument, chord.notes[1], s.degree, CHORD_VOICE_GAIN)
-    }
+    chord.notes.forEach((midi, i) => {
+      if (midi === s.notes[i]) return
+      s.voices[i].release()
+      s.voices[i] = audio.play(settings.current.instrument, midi, s.degree, CHORD_VOICE_GAIN)
+    })
     s.lean = lean
     s.notes = chord.notes
     setCurrent((c) => ({ chord, hit: (c?.hit ?? 0) + 1 }))
+  }
+
+  function changeKey(key: NoteName) {
+    settings.current.keyName = key
+    setKeyName(key)
   }
 
   function dragVolume(audio: AudioEngine, y: number | null) {
@@ -139,6 +145,7 @@ export default function App() {
         else playChord(audio, digit - 1, lean)
       }
       handTracker.onLean = (lean) => relean(audio, lean)
+      handTracker.onKey = (gesture) => changeKey(KEYS[gestureDigits[gesture] - 1])
       handTracker.onLost = (hand) => {
         if (hand === 'right') stopChord()
       }
@@ -158,28 +165,28 @@ export default function App() {
     tracking === 'loading' ? '正在加载手部识别…'
     : tracking === 'failed' ? '手部识别加载失败，请检查网络后刷新'
     : handsPresent ? ''
-    : '右手比 1–6 弹和弦 · 握拳停'
+    : '左手比数字换调 · 右手比数字弹和弦'
 
   return (
     <>
-      <CameraView videoRef={videoRef} tracker={tracker} live={live} getVolume={getVolume} />
+      <CameraView videoRef={videoRef} tracker={tracker} live={live} getVolume={getVolume} keyName={keyName} />
       <WaveformVisualizer analyser={analyser} />
 
       {live && (
         <>
           <ControlPanel
             keyName={keyName}
-            onKeyChange={setKeyName}
+            onKeyChange={changeKey}
             instrument={instrument}
             onInstrumentChange={setInstrument}
             guideOpen={guideOpen}
             onToggleGuide={() => setGuideOpen((o) => !o)}
             tracking={tracking}
           >
-            <GestureGuide keyName={keyName} active={active.right} />
+            <GestureGuide keyName={keyName} active={active} />
           </ControlPanel>
           <p className="hint" data-visible={hint !== ''} role="status">{hint}</p>
-          <CurrentNote chord={current?.chord ?? null} hit={current?.hit ?? 0} />
+          <CurrentNote keyName={keyName} chord={current?.chord ?? null} hit={current?.hit ?? 0} />
           {RECORDING && tracker && <Recorder tracker={tracker} />}
         </>
       )}

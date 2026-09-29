@@ -1,7 +1,8 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { VOLUME_RANGE } from '../audio/AudioEngine'
-import { gestureDigits } from '../config/gestures'
-import type { HandTracker } from '../vision/HandTracker'
+import { gestureDigits, type NoteName } from '../config/gestures'
+import { KEYS } from '../music/theory'
+import type { HandTracker, TrackedHand } from '../vision/HandTracker'
 
 const CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -19,14 +20,28 @@ interface Props {
   tracker: HandTracker | null
   videoRef: RefObject<HTMLVideoElement | null>
   getVolume: () => number
+  keyName: NoteName
+}
+
+/** What to write under a wrist: the chord digit (right hand) or the key it selects (left hand). */
+function wristLabel(hand: TrackedHand, key: NoteName): { text: string; done: boolean } | null {
+  const digit = hand.seen ? gestureDigits[hand.seen] : null
+  if (hand.role === 'right') return { text: digit === null ? '?' : String(digit), done: !!hand.seen && hand.seen === hand.active }
+  if (!digit) return null
+  const letter = KEYS[digit - 1]
+  return { text: `1=${letter}`, done: letter === key }
 }
 
 /**
  * Draws landmarks in unmirrored video space; the canvas shares the video's box and
  * mirror transform, so the dots stay locked to the hand under object-fit: cover.
  */
-export function HandOverlay({ tracker, videoRef, getVolume }: Props) {
+export function HandOverlay({ tracker, videoRef, getVolume, keyName }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const keyRef = useRef(keyName)
+  useEffect(() => {
+    keyRef.current = keyName
+  }, [keyName])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -77,8 +92,9 @@ export function HandOverlay({ tracker, videoRef, getVolume }: Props) {
         ctx.fillStyle = '#fff'
         circles(ctx, pts, (i) => (TIPS.has(i) ? 4.5 : 3.5) * grow)
 
-        if (hand.role === 'right') {
-          // What the machine reads, big enough to see from singing distance; gold once it plays.
+        const label = hand.gripping ? null : wristLabel(hand, keyRef.current)
+        if (label) {
+          // What the camera reads, big enough to see from singing distance; gold once in effect.
           ctx.save()
           ctx.translate(pts[0][0], pts[0][1] + 46)
           ctx.scale(-1, 1) // un-mirror the text
@@ -86,8 +102,8 @@ export function HandOverlay({ tracker, videoRef, getVolume }: Props) {
           ctx.textAlign = 'center'
           ctx.shadowColor = 'rgba(0, 0, 0, 0.6)'
           ctx.shadowBlur = 6
-          ctx.fillStyle = hand.seen && hand.seen === hand.active ? GOLD : 'rgba(255, 255, 255, 0.85)'
-          ctx.fillText(hand.seen ? String(gestureDigits[hand.seen]) : '?', 0, 0)
+          ctx.fillStyle = label.done ? GOLD : 'rgba(255, 255, 255, 0.85)'
+          ctx.fillText(label.text, 0, 0)
           ctx.restore()
         } else if (hand.gripping) {
           // Volume level beside the left fist while it holds the volume.

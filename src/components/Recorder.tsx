@@ -10,10 +10,12 @@ const STEPS = [
   { label: '4', say: '右手比 4' },
   { label: '5', say: '右手比 5' },
   { label: '6', say: '右手比 6' },
+  { label: '7', say: '右手比 7（拇指 + 食指 + 小指）' },
   { label: '0', say: '右手握拳' },
-  { label: 'relaxed', say: '右手放松，自然半握' },
-  { label: 'switch', say: '右手在 1–6 之间随意切换' },
+  { label: 'relaxed', say: '右手放松，留在画面里' },
+  { label: 'switch', say: '右手在 1–7 之间随意切换' },
   { label: 'lean', say: '右手比 1，往外倾、回正、往内倾' },
+  { label: 'left-keys', say: '左手在 1–7 之间慢慢换，右手放下' },
   { label: 'left-fist', say: '左手握拳上下移动，右手比 1' },
 ]
 const STEP_MS = 4000

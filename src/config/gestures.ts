@@ -1,11 +1,12 @@
-/** Chinese finger-counting signs. */
-export type GestureId = 'one' | 'two' | 'three' | 'four' | 'five' | 'six' | 'zero'
+/** Chinese finger-counting signs 1–6, 🤟 for 7, and a fist for 0. */
+export type GestureId = 'one' | 'two' | 'three' | 'four' | 'five' | 'six' | 'seven' | 'zero'
 export type NoteName = 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B'
 
 /**
- * The jianpu digit each sign shows. Right hand: 1–6 play the chord on that degree of the
- * current key (in C: 1=C 2=Dm 3=Em 4=F 5=G 6=Am); 0, a fist, is a rest — it stops the chord.
- * Left hand: a fist grabs the volume.
+ * The jianpu digit each sign shows.
+ * Right hand: 1–7 play the chord on that degree of the current key (in C: C Dm Em F G Am B°);
+ * 0 — a fist, which is also what a relaxed hand looks like — stops the chord.
+ * Left hand: 1–7 switch the key to C D E F G A B; a fist grabs the volume.
  */
 export const gestureDigits: Record<GestureId, number> = {
   one: 1,
@@ -14,6 +15,7 @@ export const gestureDigits: Record<GestureId, number> = {
   four: 4,
   five: 5,
   six: 6,
+  seven: 7,
   zero: 0,
 }
 
@@ -24,7 +26,8 @@ export const gestureLabels: Record<GestureId, string> = {
   four: '4：四指伸直，拇指折进掌心',
   five: '5：五指张开',
   six: '6：拇指 + 小指',
-  zero: '0：握拳（停）',
+  seven: '7：拇指 + 食指 + 小指',
+  zero: '0：握拳',
 }
 
 /** Recognition thresholds and timing. Tune these against real-hand recordings (?rec). */
@@ -54,4 +57,9 @@ export const recognition = {
   leanDwellMs: 150,
   /** A left fist must hold this long before it grabs the volume. */
   gripDwellMs: 150,
+  /**
+   * A left-hand sign must hold this long before it changes the key, so a hand that merely
+   * opens doesn't (a recorded casual open hand lasted 0.47 s; a deliberate sign, well over 1 s).
+   */
+  keyHoldMs: 500,
 }

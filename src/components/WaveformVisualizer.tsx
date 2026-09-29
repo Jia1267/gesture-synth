@@ -63,7 +63,8 @@ export function WaveformVisualizer({ analyser }: { analyser: AnalyserNode | null
         const sample = analyser ? wave[Math.round(u * (WINDOW - 1))] : 0
         const idle = Math.sin(u * 9 + t * 0.8) * 1.2 + Math.sin(u * 23 - t * 1.3) * 0.6
         const taper = Math.sin(Math.PI * u) ** 0.8
-        ys.push(mid + (Math.max(-1, Math.min(1, sample * 1.8)) * amp + idle) * taper)
+        // Gain chosen so a chord at the loudest volume just reaches the edge: the line shows volume.
+        ys.push(mid + (Math.max(-1, Math.min(1, sample * 1.1)) * amp + idle) * taper)
       }
 
       ctx.beginPath()

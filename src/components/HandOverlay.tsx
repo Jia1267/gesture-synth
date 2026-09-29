@@ -1,4 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react'
+import { VOLUME_RANGE } from '../audio/AudioEngine'
+import { gestureDigits } from '../config/gestures'
 import type { HandTracker } from '../vision/HandTracker'
 
 const CONNECTIONS = [
@@ -10,17 +12,20 @@ const CONNECTIONS = [
 ]
 const TIPS = new Set([4, 8, 12, 16, 20])
 const PULSE_MS = 180
+const GOLD = '#f2c14e'
+const VOLUME_BAR_H = 100
 
 interface Props {
   tracker: HandTracker | null
   videoRef: RefObject<HTMLVideoElement | null>
+  getVolume: () => number
 }
 
 /**
  * Draws landmarks in unmirrored video space; the canvas shares the video's box and
  * mirror transform, so the dots stay locked to the hand under object-fit: cover.
  */
-export function HandOverlay({ tracker, videoRef }: Props) {
+export function HandOverlay({ tracker, videoRef, getVolume }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -72,21 +77,39 @@ export function HandOverlay({ tracker, videoRef }: Props) {
         ctx.fillStyle = '#fff'
         circles(ctx, pts, (i) => (TIPS.has(i) ? 4.5 : 3.5) * grow)
 
-        // Role tag under the wrist, un-mirrored so it reads correctly.
-        ctx.save()
-        ctx.translate(pts[0][0], pts[0][1] + 22)
-        ctx.scale(-1, 1)
-        ctx.font = '500 11px "IBM Plex Mono", ui-monospace, monospace'
-        ctx.textAlign = 'center'
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'
-        ctx.fillText(hand.role === 'left' ? 'L · KEY' : 'R · NOTE', 0, 0)
-        ctx.restore()
+        if (hand.role === 'right') {
+          // What the machine reads, big enough to see from singing distance; gold once it plays.
+          ctx.save()
+          ctx.translate(pts[0][0], pts[0][1] + 46)
+          ctx.scale(-1, 1) // un-mirror the text
+          ctx.font = '500 34px "IBM Plex Mono", ui-monospace, monospace'
+          ctx.textAlign = 'center'
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.6)'
+          ctx.shadowBlur = 6
+          ctx.fillStyle = hand.seen && hand.seen === hand.active ? GOLD : 'rgba(255, 255, 255, 0.85)'
+          ctx.fillText(hand.seen ? String(gestureDigits[hand.seen]) : '?', 0, 0)
+          ctx.restore()
+        } else if (hand.gripping) {
+          // Volume level beside the left fist while it holds the volume.
+          const [min, max] = VOLUME_RANGE
+          const level = Math.max(0, Math.min(1, (getVolume() - min) / (max - min)))
+          const x = pts[0][0] - 46
+          const top = pts[0][1] - 110
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
+          ctx.beginPath()
+          ctx.roundRect(x, top, 6, VOLUME_BAR_H, 3)
+          ctx.fill()
+          ctx.fillStyle = GOLD
+          ctx.beginPath()
+          ctx.roundRect(x, top + VOLUME_BAR_H * (1 - level), 6, VOLUME_BAR_H * level, 3)
+          ctx.fill()
+        }
       }
     }
 
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [tracker, videoRef])
+  }, [tracker, videoRef, getVolume])
 
   return <canvas ref={canvasRef} className="camera__overlay" />
 }

@@ -42,24 +42,22 @@ function angle(a: Point3, b: Point3) {
 }
 
 /**
- * A finger is extended when it carries on roughly in the palm's direction. Bending at any
- * knuckle swings the knuckle→tip direction away from the wrist→knuckle line, so loosely
- * curled fingers don't pass as extended.
+ * How far a finger bends away from the palm's direction, in degrees: the angle between its
+ * knuckle→tip direction and the wrist→knuckle line. Straight ≈ 10°, clenched > 120°.
  */
-function isExtended(p: Point3[], [mcp, , , tip]: readonly number[]) {
-  return angle(sub(p[mcp], p[0]), sub(p[tip], p[mcp])) < recognition.maxBend
+function bend(p: Point3[], [mcp, , , tip]: readonly number[]) {
+  return angle(sub(p[mcp], p[0]), sub(p[tip], p[mcp]))
 }
 
 /**
  * Classify one hand from its 21 world landmarks (metric, camera-orientation independent).
- * Returns null when the pose matches none of the gestures.
+ * Returns null when the pose matches none of the signs — including a relaxed, half-curled
+ * hand, which must not pass for a fist because a fist stops the music.
  */
 export function classifyGesture(p: Point3[]): GestureId | null {
   const palm = dist(p[0], p[9])
-  const index = isExtended(p, FINGERS.index)
-  const middle = isExtended(p, FINGERS.middle)
-  const ring = isExtended(p, FINGERS.ring)
-  const pinky = isExtended(p, FINGERS.pinky)
+  const bends = [FINGERS.index, FINGERS.middle, FINGERS.ring, FINGERS.pinky].map((f) => bend(p, f))
+  const [index, middle, ring, pinky] = bends.map((b) => b < recognition.upMaxDeg)
   const thumbOut = thumbSpread(p) > palm * recognition.thumbOut
 
   if (index && middle && ring && pinky) return thumbOut ? 'five' : 'four'
@@ -67,33 +65,37 @@ export function classifyGesture(p: Point3[]): GestureId | null {
   if (index && middle && ring && !pinky) return 'three'
   if (index && middle && !ring && !pinky) return 'two'
   if (index && !middle && !ring && !pinky) return 'one'
-  if (!index && !middle && !ring && !pinky) return 'zero'
+  if (bends.every((b) => b > recognition.fistMinDeg)) return 'zero'
   return null
 }
 
 /**
- * Debounces per-frame classifications for one hand. A gesture fires once when it
- * has been held for `stableMs`; it must be released (or changed) before it can fire
- * again, and never faster than `cooldownMs`.
+ * Turns one hand's per-frame guesses into sign changes.
+ * - Unrecognized frames are ignored, so whatever is playing keeps playing (sticky hold).
+ * - A new sign takes over once `minFrames` of the last 4 recognized frames agree, spanning
+ *   at least `minHoldMs` — one stray frame no longer restarts the wait.
  */
 export class GestureStabilizer {
-  /** The currently held (latched) gesture. */
+  /** The sign currently in effect. */
   active: GestureId | null = null
-  private candidate: GestureId | null = null
-  private since = 0
-  private lastFired = new Map<GestureId, number>()
+  /** What the hand looks like right now, for on-screen feedback; null = can't tell. */
+  seen: GestureId | null = null
+  private recent: { t: number; g: GestureId }[] = []
 
-  /** Feed one frame. Returns the gesture to trigger on this frame, if any. */
+  /** Feed one frame. Returns the sign that takes effect on this frame, if any. */
   update(raw: GestureId | null, now: number): GestureId | null {
-    if (raw !== this.candidate) {
-      this.candidate = raw
-      this.since = now
+    this.recent = this.recent.filter((f) => now - f.t < recognition.voteWindowMs)
+    if (!raw) {
+      if (this.recent.length === 0) this.seen = null
+      return null
     }
-    if (this.candidate === this.active || now - this.since < recognition.stableMs) return null
-    this.active = this.candidate
-    if (this.active === null) return null
-    if (now - (this.lastFired.get(this.active) ?? -Infinity) < recognition.cooldownMs) return null
-    this.lastFired.set(this.active, now)
-    return this.active
+    this.recent.push({ t: now, g: raw })
+    if (this.recent.length > 4) this.recent.shift()
+    this.seen = raw
+    if (raw === this.active) return null
+    const votes = this.recent.filter((f) => f.g === raw)
+    if (votes.length < recognition.minFrames || now - votes[0].t < recognition.minHoldMs) return null
+    this.active = raw
+    return raw
   }
 }

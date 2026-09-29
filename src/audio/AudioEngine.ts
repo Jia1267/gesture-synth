@@ -1,15 +1,12 @@
-import { cMajorMidi, midiToHz } from '../music/theory'
+import { midiToHz } from '../music/theory'
 import { INSTRUMENT_BUILDERS, type Instrument, type Voice } from './instruments'
 
-/**
- * Optional recorded syllables. Drop files with these names into /public/audio/
- * (sung at C-major pitch: do = C4, re = D4 …) and the Voice sound uses them,
- * pitch-shifted to the selected key. Missing files fall back to a synthesized vowel.
- */
-const SAMPLE_NAMES = ['do', 're', 'mi', 'fa', 'sol', 'la', 'ti']
 const MAX_VOICES = 14
+export const DEFAULT_VOLUME = 1
+/** Chords peak at ~0.4–0.7 at volume 1, so the top stays clear of clipping (±1). */
+export const VOLUME_RANGE = [0.15, 1.3] as const
 
-/** A playing note; `release` fades a sustained note out (no-op for one-shots). */
+/** A sounding note; `release` fades it out. */
 export interface NoteHandle {
   release(): void
 }
@@ -17,7 +14,7 @@ export interface NoteHandle {
 interface LiveNote {
   fader: GainNode
   voice: Voice
-  /** Context time the note is silent; Infinity while sustained. */
+  /** Context time the note is silent; Infinity while it sustains. */
   end: number
 }
 
@@ -25,44 +22,50 @@ export class AudioEngine {
   readonly ctx = new AudioContext({ latencyHint: 'interactive' })
   readonly analyser: AnalyserNode
   private master: GainNode
+  private volume: GainNode
   private reverbBus: GainNode
-  private samples: (AudioBuffer | null)[] = []
   private live: LiveNote[] = []
 
   constructor() {
     const { ctx } = this
     this.master = new GainNode(ctx, { gain: 0.8 })
+    // Volume sits after the compressor, so turning it up really gets louder; the waveform
+    // is drawn after it, so the line visibly grows and shrinks with the volume.
+    this.volume = new GainNode(ctx, { gain: DEFAULT_VOLUME })
     this.analyser = new AnalyserNode(ctx, { fftSize: 2048 })
     this.master
       .connect(new DynamicsCompressorNode(ctx, { threshold: -14, knee: 8, ratio: 6, attack: 0.003, release: 0.2 }))
+      .connect(this.volume)
       .connect(this.analyser)
       .connect(ctx.destination)
     this.reverbBus = new GainNode(ctx, { gain: 0.6 })
     this.reverbBus.connect(new ConvolverNode(ctx, { buffer: impulseResponse(ctx, 2.4) })).connect(this.master)
-    void this.loadSamples()
   }
 
   resume() {
     return this.ctx.resume()
   }
 
+  /** Overall loudness, clamped to VOLUME_RANGE and smoothed so dragging it never clicks. */
+  setVolume(value: number) {
+    const [min, max] = VOLUME_RANGE
+    this.volume.gain.setTargetAtTime(Math.max(min, Math.min(max, value)), this.ctx.currentTime, 0.05)
+  }
+
   /**
-   * Start a note immediately. Notes overlap freely up to MAX_VOICES.
-   * `sustain`: keep sounding until the returned handle is released; otherwise a one-shot.
+   * Start a note that sustains until the returned handle is released.
+   * `vowelDegree` picks the Voice sound's vowel; `gain` scales the note (chords use < 1).
    */
-  play(instrument: Instrument, midi: number, degree: number, sustain = false): NoteHandle {
+  play(instrument: Instrument, midi: number, vowelDegree: number, gain = 1): NoteHandle {
     const { ctx } = this
     const t = ctx.currentTime + 0.005
-    const sample = instrument === 'voice' ? this.samples[degree] : null
-    const voice = sample
-      ? this.sampleVoice(sample, midi, degree, t)
-      : INSTRUMENT_BUILDERS[instrument](ctx, midiToHz(midi), t, degree)
+    const voice = INSTRUMENT_BUILDERS[instrument](ctx, midiToHz(midi), t, vowelDegree)
 
-    const fader = new GainNode(ctx)
+    const fader = new GainNode(ctx, { gain })
     voice.output.connect(fader).connect(this.master)
     fader.connect(new GainNode(ctx, { gain: voice.reverb })).connect(this.reverbBus)
 
-    const note: LiveNote = { fader, voice, end: sustain ? Infinity : voice.release(t + voice.length) }
+    const note: LiveNote = { fader, voice, end: Infinity }
     this.live = this.live.filter((n) => n.end > ctx.currentTime)
     this.live.push(note)
     if (this.live.length > MAX_VOICES) {
@@ -75,42 +78,6 @@ export class AudioEngine {
         if (note.end === Infinity) note.end = voice.release(ctx.currentTime)
       },
     }
-  }
-
-  private sampleVoice(buffer: AudioBuffer, midi: number, degree: number, t: number): Voice {
-    const rate = 2 ** ((midi - cMajorMidi(degree)) / 12)
-    const source = new AudioBufferSourceNode(this.ctx, { buffer, playbackRate: rate })
-    const amp = new GainNode(this.ctx, { gain: 0 })
-    amp.gain.setValueAtTime(0, t)
-    amp.gain.linearRampToValueAtTime(0.9, t + 0.005)
-    source.connect(amp)
-    source.start(t)
-    const duration = buffer.duration / rate
-    return {
-      output: amp,
-      reverb: 0.25,
-      length: duration,
-      release(at) {
-        amp.gain.setTargetAtTime(0, at, 0.03)
-        source.stop(at + 0.15)
-        return Math.min(at + 0.15, t + duration)
-      },
-    }
-  }
-
-  private async loadSamples() {
-    this.samples = await Promise.all(
-      SAMPLE_NAMES.map(async (name) => {
-        try {
-          const res = await fetch(`${import.meta.env.BASE_URL}audio/${name}.wav`)
-          // Dev servers answer missing files with index.html — treat that as "no sample".
-          if (!res.ok || res.headers.get('content-type')?.includes('text/html')) return null
-          return await this.ctx.decodeAudioData(await res.arrayBuffer())
-        } catch {
-          return null
-        }
-      }),
-    )
   }
 }
 

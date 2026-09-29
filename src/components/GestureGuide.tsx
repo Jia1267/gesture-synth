@@ -1,65 +1,39 @@
-import { gestureLabels, gestureMappings, type GestureId, type NoteName } from '../config/gestures'
-import { KEYS, pitchFor, type Pitch } from '../music/theory'
-import type { ActiveGestures } from '../vision/HandTracker'
+import { gestureDigits, gestureLabels, type GestureId, type NoteName } from '../config/gestures'
+import { chordFor } from '../music/theory'
 import { HandIcon } from './HandIcon'
+
+const ORDER: GestureId[] = ['one', 'two', 'three', 'four', 'five', 'six', 'zero']
 
 interface Props {
   keyName: NoteName
-  active: ActiveGestures
+  /** Signs the right hand is holding right now. */
+  active: GestureId[]
 }
 
-/** One row per gesture: left column = key it selects (left hand), right = note it plays (right hand). */
+/** Right-hand sign → the chord it plays in the current key. */
 export function GestureGuide({ keyName, active }: Props) {
-  const gestures = (Object.keys(gestureMappings) as GestureId[]).sort(
-    (a, b) => KEYS.indexOf(gestureMappings[a]) - KEYS.indexOf(gestureMappings[b]),
-  )
   return (
-    <section className="guide" aria-label="Gesture guide">
-      <h2 className="guide__title">Gesture guide</h2>
-      <div className="guide__head" aria-hidden="true">
-        <span>L · key</span>
-        <span>R · note</span>
-      </div>
+    <section className="guide" aria-label="手势指南">
+      <h2 className="guide__title">手势指南</h2>
       <ol className="guide__list">
-        {gestures.map((g) => (
-          <GestureItem
-            key={g}
-            gesture={g}
-            keyLetter={gestureMappings[g]}
-            isKey={gestureMappings[g] === keyName}
-            pitch={pitchFor(gestureMappings[g], keyName)}
-            left={active.left.includes(g)}
-            right={active.right.includes(g)}
-          />
-        ))}
+        {ORDER.map((g) => {
+          const digit = gestureDigits[g]
+          const chord = digit > 0 ? chordFor(digit - 1, keyName, 'none') : null
+          return (
+            <li key={g} className="guide__row" data-active={active.includes(g) || undefined} title={gestureLabels[g]}>
+              <HandIcon gesture={g} className="guide__icon" />
+              <span className="guide__chord">{chord ? chord.name : '停'}</span>
+              <span className="guide__syllable">{chord ? `${digit} · ${chord.syllable}` : '0'}</span>
+              <span className="sr-only">{gestureLabels[g]}</span>
+            </li>
+          )
+        })}
       </ol>
+      <p className="guide__tips">
+        右手往外倾 → 大三 · 往内倾 → 小三
+        <br />
+        左手握拳上下移动 → 音量
+      </p>
     </section>
-  )
-}
-
-interface ItemProps {
-  gesture: GestureId
-  keyLetter: NoteName
-  isKey: boolean
-  pitch: Pitch
-  left: boolean
-  right: boolean
-}
-
-function GestureItem({ gesture, keyLetter, isKey, pitch, left, right }: ItemProps) {
-  return (
-    <li className="guide__row" data-active={right || undefined} title={gestureLabels[gesture]}>
-      <span className="guide__key" data-current={isKey || undefined} data-held={left || undefined}>
-        {keyLetter}
-      </span>
-      <HandIcon gesture={gesture} className="guide__icon" />
-      <span className="guide__play">
-        <span className="guide__note">{pitch.name}</span>
-        <span className="guide__syllable">{pitch.syllable}</span>
-      </span>
-      <span className="sr-only">
-        {gestureLabels[gesture]}: left hand selects key {keyLetter}, right hand plays {pitch.name} {pitch.syllable}
-      </span>
-    </li>
   )
 }

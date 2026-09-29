@@ -30,12 +30,12 @@ export function Landing({ hidden, starting, error, onEnable }: Props) {
         ))}
       </svg>
       <h1 className="landing__title">Gesture Synth</h1>
-      <p className="landing__tagline">Play music with your hands.</p>
+      <p className="landing__tagline">比出简谱数字，给自己的歌声伴奏。</p>
       <button type="button" className="landing__cta" onClick={onEnable} disabled={starting}>
-        {starting ? 'Starting camera…' : 'Enable Camera'}
+        {starting ? '正在打开摄像头…' : '开启摄像头'}
       </button>
       <p className="landing__error" role="alert">{error}</p>
-      <p className="landing__note">Your camera is processed locally in your browser.</p>
+      <p className="landing__note">摄像头画面只在你的浏览器里处理，不会上传。</p>
     </main>
   )
 }

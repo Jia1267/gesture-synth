@@ -1,15 +1,13 @@
 import type { ReactNode } from 'react'
 import { INSTRUMENTS, type Instrument } from '../audio/instruments'
 import type { NoteName } from '../config/gestures'
+import { KEYS } from '../music/theory'
 
 interface Props {
-  /** Set by left-hand gestures. */
   keyName: NoteName
+  onKeyChange: (key: NoteName) => void
   instrument: Instrument
   onInstrumentChange: (instrument: Instrument) => void
-  /** Keep a note sounding for as long as its gesture is held. */
-  sustain: boolean
-  onToggleSustain: () => void
   guideOpen: boolean
   onToggleGuide: () => void
   tracking: 'loading' | 'live' | 'failed'
@@ -25,16 +23,26 @@ export function ControlPanel(props: Props) {
         Gesture Synth
       </div>
 
-      <div className="field">
-        <span className="field__label" id="key-label">Key</span>
-        <output className="key-readout" aria-labelledby="key-label" aria-live="polite">
-          <span key={keyName} className="key-readout__value">{keyName}</span>
-          <span className="key-readout__hint">left hand</span>
-        </output>
+      <div className="field field--stacked">
+        <span className="field__label" id="key-label">调</span>
+        <div className="keys" role="radiogroup" aria-labelledby="key-label">
+          {KEYS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              aria-checked={k === keyName}
+              className="key"
+              onClick={() => props.onKeyChange(k)}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
       </div>
 
       <label className="field">
-        <span className="field__label">Sound</span>
+        <span className="field__label">音色</span>
         <select
           className="select"
           value={instrument}
@@ -46,24 +54,6 @@ export function ControlPanel(props: Props) {
         </select>
       </label>
 
-      <div className="field">
-        <span className="field__label" id="hold-label">Hold</span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={props.sustain}
-          aria-labelledby="hold-label"
-          className="switch"
-          title="Keep the note sounding while the gesture is held"
-          onClick={props.onToggleSustain}
-        >
-          <span className="switch__track" aria-hidden="true">
-            <span className="switch__thumb" />
-          </span>
-          {props.sustain ? 'On' : 'Off'}
-        </button>
-      </div>
-
       <button
         type="button"
         className="btn-guide"
@@ -71,7 +61,7 @@ export function ControlPanel(props: Props) {
         aria-controls="gesture-guide"
         onClick={props.onToggleGuide}
       >
-        {guideOpen ? 'Close Guide' : 'Open Guide'}
+        {guideOpen ? '收起指南' : '展开指南'}
       </button>
 
       <div id="gesture-guide" className="panel__guide" data-open={guideOpen} inert={!guideOpen}>

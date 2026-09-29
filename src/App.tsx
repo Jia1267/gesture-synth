@@ -1,18 +1,34 @@
-import { useEffect, useRef, useState } from 'react'
-import { AudioEngine, type NoteHandle } from './audio/AudioEngine'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AudioEngine, DEFAULT_VOLUME, VOLUME_RANGE, type NoteHandle } from './audio/AudioEngine'
 import type { Instrument } from './audio/instruments'
 import { CameraView } from './components/CameraView'
 import { ControlPanel } from './components/ControlPanel'
 import { CurrentNote } from './components/CurrentNote'
 import { GestureGuide } from './components/GestureGuide'
 import { Landing } from './components/Landing'
+import { Recorder } from './components/Recorder'
 import { WaveformVisualizer } from './components/WaveformVisualizer'
-import { gestureMappings, type NoteName } from './config/gestures'
-import { pitchFor, type Pitch } from './music/theory'
+import { gestureDigits, type NoteName } from './config/gestures'
+import { chordFor, type Chord, type Lean } from './music/theory'
 import { HandTracker, type ActiveGestures } from './vision/HandTracker'
 
 type Phase = 'landing' | 'starting' | 'live'
 type Tracking = 'loading' | 'live' | 'failed'
+
+/** A chord is three notes at once, so each is quieter than a lone note. */
+const CHORD_VOICE_GAIN = 0.55
+/** Left-fist drag: volume change for moving the fist the full height of the frame. */
+const VOLUME_PER_FRAME = 1.8
+/** `?rec` in the URL turns on the guided real-hand recorder. */
+const RECORDING = new URLSearchParams(location.search).has('rec')
+
+interface Sounding {
+  key: NoteName
+  degree: number
+  lean: Lean
+  notes: number[]
+  voices: NoteHandle[]
+}
 
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -24,38 +40,72 @@ export default function App() {
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null)
   const [keyName, setKeyName] = useState<NoteName>('C')
   const [instrument, setInstrument] = useState<Instrument>('strings')
-  const [sustain, setSustain] = useState(false)
   const [guideOpen, setGuideOpen] = useState(true)
   const [active, setActive] = useState<ActiveGestures>({ left: [], right: [] })
   const [handsPresent, setHandsPresent] = useState(false)
-  const [current, setCurrent] = useState<{ pitch: Pitch; hit: number } | null>(null)
-  /** Sustained right-hand notes, by tracked hand id. */
-  const heldNotes = useRef(new Map<number, NoteHandle>())
+  const [current, setCurrent] = useState<{ chord: Chord; hit: number } | null>(null)
+  const sounding = useRef<Sounding | null>(null)
+  const volume = useRef(DEFAULT_VOLUME)
+  /** Where the left fist grabbed, and the volume at that moment (relative drag, no jump). */
+  const grab = useRef<{ y: number; volume: number } | null>(null)
+  const getVolume = useCallback(() => volume.current, [])
 
   // The tracker fires outside React; let it read the latest selections without re-binding.
-  const settings = useRef({ keyName, instrument, sustain })
+  const settings = useRef({ keyName, instrument })
   useEffect(() => {
-    settings.current = { keyName, instrument, sustain }
-  }, [keyName, instrument, sustain])
-
-  function releaseHeld(handId?: number) {
-    for (const [id, note] of heldNotes.current) {
-      if (handId !== undefined && id !== handId) continue
-      note.release()
-      heldNotes.current.delete(id)
-    }
-  }
-
-  function toggleSustain() {
-    if (sustain) releaseHeld()
-    setSustain(!sustain)
-  }
+    settings.current = { keyName, instrument }
+  }, [keyName, instrument])
 
   useEffect(() => {
     if (!tracker) return
     tracker.start()
     return () => tracker.stop()
   }, [tracker])
+
+  function stopChord() {
+    sounding.current?.voices.forEach((v) => v.release())
+    sounding.current = null
+    setCurrent(null)
+  }
+
+  function playChord(audio: AudioEngine, degree: number, lean: Lean) {
+    const { keyName, instrument } = settings.current
+    const chord = chordFor(degree, keyName, lean)
+    sounding.current?.voices.forEach((v) => v.release())
+    sounding.current = {
+      key: keyName,
+      degree,
+      lean,
+      notes: chord.notes,
+      voices: chord.notes.map((midi) => audio.play(instrument, midi, degree, CHORD_VOICE_GAIN)),
+    }
+    setCurrent((c) => ({ chord, hit: (c?.hit ?? 0) + 1 }))
+  }
+
+  /** Leaning while a chord sounds swaps only its third; the root and fifth keep ringing. */
+  function relean(audio: AudioEngine, lean: Lean) {
+    const s = sounding.current
+    if (!s || s.lean === lean) return
+    const chord = chordFor(s.degree, s.key, lean)
+    if (chord.notes[1] !== s.notes[1]) {
+      s.voices[1].release()
+      s.voices[1] = audio.play(settings.current.instrument, chord.notes[1], s.degree, CHORD_VOICE_GAIN)
+    }
+    s.lean = lean
+    s.notes = chord.notes
+    setCurrent((c) => ({ chord, hit: (c?.hit ?? 0) + 1 }))
+  }
+
+  function dragVolume(audio: AudioEngine, y: number | null) {
+    if (y === null) {
+      grab.current = null
+      return
+    }
+    grab.current ??= { y, volume: volume.current }
+    const [min, max] = VOLUME_RANGE
+    volume.current = Math.max(min, Math.min(max, grab.current.volume + (grab.current.y - y) * VOLUME_PER_FRAME))
+    audio.setVolume(volume.current)
+  }
 
   async function enable() {
     setPhase('starting')
@@ -82,21 +132,17 @@ export default function App() {
 
     try {
       const handTracker = await HandTracker.create(video)
-      handTracker.onTrigger = (gesture, hand, handId) => {
-        // Left hand silently sets the key; right hand plays the syllable in that key.
-        if (hand === 'left') {
-          settings.current.keyName = gestureMappings[gesture]
-          setKeyName(gestureMappings[gesture])
-          return
-        }
-        const { keyName, instrument, sustain } = settings.current
-        const pitch = pitchFor(gestureMappings[gesture], keyName)
-        releaseHeld(handId)
-        const note = audio.play(instrument, pitch.midi, pitch.degree, sustain)
-        if (sustain) heldNotes.current.set(handId, note)
-        setCurrent((c) => ({ pitch, hit: (c?.hit ?? 0) + 1 }))
+      handTracker.onTrigger = (gesture, hand, lean) => {
+        if (hand !== 'right') return
+        const digit = gestureDigits[gesture]
+        if (digit === 0) stopChord()
+        else playChord(audio, digit - 1, lean)
       }
-      handTracker.onRelease = (_hand, handId) => releaseHeld(handId)
+      handTracker.onLean = (lean) => relean(audio, lean)
+      handTracker.onLost = (hand) => {
+        if (hand === 'right') stopChord()
+      }
+      handTracker.onGrip = (y) => dragVolume(audio, y)
       handTracker.onActiveChange = setActive
       handTracker.onPresenceChange = setHandsPresent
       setTracker(handTracker)
@@ -109,32 +155,32 @@ export default function App() {
 
   const live = phase === 'live'
   const hint =
-    tracking === 'loading' ? 'Loading hand tracking…'
-    : tracking === 'failed' ? 'Hand tracking failed to load. Check your connection and reload.'
+    tracking === 'loading' ? '正在加载手部识别…'
+    : tracking === 'failed' ? '手部识别加载失败，请检查网络后刷新'
     : handsPresent ? ''
-    : 'Left hand sets the key · right hand plays'
+    : '右手比 1–6 弹和弦 · 握拳停'
 
   return (
     <>
-      <CameraView videoRef={videoRef} tracker={tracker} live={live} />
+      <CameraView videoRef={videoRef} tracker={tracker} live={live} getVolume={getVolume} />
       <WaveformVisualizer analyser={analyser} />
 
       {live && (
         <>
           <ControlPanel
             keyName={keyName}
+            onKeyChange={setKeyName}
             instrument={instrument}
             onInstrumentChange={setInstrument}
-            sustain={sustain}
-            onToggleSustain={toggleSustain}
             guideOpen={guideOpen}
             onToggleGuide={() => setGuideOpen((o) => !o)}
             tracking={tracking}
           >
-            <GestureGuide keyName={keyName} active={active} />
+            <GestureGuide keyName={keyName} active={active.right} />
           </ControlPanel>
           <p className="hint" data-visible={hint !== ''} role="status">{hint}</p>
-          <CurrentNote pitch={current?.pitch ?? null} hit={current?.hit ?? 0} />
+          <CurrentNote chord={current?.chord ?? null} hit={current?.hit ?? 0} />
+          {RECORDING && tracker && <Recorder tracker={tracker} />}
         </>
       )}
 
@@ -145,9 +191,9 @@ export default function App() {
 
 function describeCameraError(err: unknown) {
   const name = err instanceof DOMException ? err.name : ''
-  if (name === 'NotAllowedError') return 'Camera access was blocked. Allow it in your browser’s site settings, then try again.'
-  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No camera was found on this device.'
-  if (name === 'NotReadableError') return 'The camera is in use by another app.'
-  if (!navigator.mediaDevices) return 'Camera access needs a secure (https or localhost) page.'
-  return 'Could not start the camera.'
+  if (name === 'NotAllowedError') return '摄像头权限被拒绝了。请在浏览器的网站设置里允许摄像头，然后再试一次。'
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return '没有找到摄像头。'
+  if (name === 'NotReadableError') return '摄像头正被其他应用占用。'
+  if (!navigator.mediaDevices) return '摄像头需要在安全页面（https 或 localhost）下使用。'
+  return '无法打开摄像头。'
 }

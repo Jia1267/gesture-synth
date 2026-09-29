@@ -8,14 +8,12 @@ export const INSTRUMENTS: { id: Instrument; label: string }[] = [
   { id: 'pad', label: 'Soft Pad' },
 ]
 
-/** One sounding note. The engine connects `output` into the mix and decides when it ends. */
+/** One sounding note. It sustains until the engine releases it. */
 export interface Voice {
   output: AudioNode
   /** Reverb send, 0–1. */
   reverb: number
-  /** How long a one-shot note sounds before its release begins, in seconds. */
-  length: number
-  /** Begin the release at context time `at`; returns the time the note is silent. */
+  /** Fade out from wherever the envelope is at context time `at`; returns when it is silent. */
   release(at: number): number
 }
 
@@ -26,8 +24,6 @@ interface Envelope {
   peak: number
   decay: number
   sustain: number
-  /** One-shot sustain time after the attack. */
-  hold: number
   release: number
 }
 
@@ -53,16 +49,13 @@ function makeVoice(
   return {
     output: amp,
     reverb,
-    length: env.attack + env.hold,
     release(at) {
-      // Releasing a held note right now: freeze the envelope wherever it is (even mid-attack).
-      if (at <= ctx.currentTime + 0.02) {
-        // Firefox lacks cancelAndHoldAtTime.
-        if (typeof gain.cancelAndHoldAtTime === 'function') gain.cancelAndHoldAtTime(at)
-        else {
-          gain.cancelScheduledValues(at)
-          gain.setValueAtTime(gain.value, at)
-        }
+      // Freeze the envelope wherever it is (even mid-attack), then fade from there.
+      // Firefox lacks cancelAndHoldAtTime.
+      if (typeof gain.cancelAndHoldAtTime === 'function') gain.cancelAndHoldAtTime(at)
+      else {
+        gain.cancelScheduledValues(at)
+        gain.setValueAtTime(gain.value, at)
       }
       gain.setTargetAtTime(0, at, env.release / 5)
       const end = at + env.release
@@ -105,9 +98,9 @@ const VOWELS: Record<string, [number, number][]> = {
 const SYLLABLE_VOWEL = ['o', 'e', 'i', 'a', 'o', 'a', 'i'] // Do Re Mi Fa Sol La Ti
 
 export const INSTRUMENT_BUILDERS: Record<Instrument, Builder> = {
-  /** Synthesized sung vowel — used when no recorded sample exists in /public/audio/. */
+  /** Synthesized sung vowel; `degree` picks the vowel (pass the chord root so all voices sing one). */
   voice: (ctx, hz, t, degree) =>
-    makeVoice(ctx, t, { attack: 0.03, peak: 0.65, decay: 0.3, sustain: 0.8, hold: 0.6, release: 0.45 }, 0.35, (input) => {
+    makeVoice(ctx, t, { attack: 0.03, peak: 0.65, decay: 0.3, sustain: 0.8, release: 0.45 }, 0.35, (input) => {
       const glottis = new GainNode(ctx)
       const source = osc(ctx, 'sawtooth', hz, glottis)
       const { lfo, depth } = vibrato(ctx, t, 5.2, 18, 0.25)
@@ -123,7 +116,7 @@ export const INSTRUMENT_BUILDERS: Record<Instrument, Builder> = {
 
   piano: (ctx, hz, t) =>
     // Struck, so it fades even while held — just slowly, like a pedalled piano.
-    makeVoice(ctx, t, { attack: 0.004, peak: 0.35, decay: 3, sustain: 0, hold: 2.2, release: 0.8 }, 0.18, (input) => {
+    makeVoice(ctx, t, { attack: 0.004, peak: 0.35, decay: 3, sustain: 0, release: 0.8 }, 0.18, (input) => {
       const tone = new BiquadFilterNode(ctx, { type: 'lowpass', Q: 0.4 })
       tone.frequency.setValueAtTime(Math.min(hz * 14, 9000), t)
       tone.frequency.setTargetAtTime(hz * 4, t, 0.35)
@@ -137,7 +130,7 @@ export const INSTRUMENT_BUILDERS: Record<Instrument, Builder> = {
     }),
 
   strings: (ctx, hz, t) =>
-    makeVoice(ctx, t, { attack: 0.06, peak: 0.26, decay: 0.3, sustain: 0.85, hold: 1, release: 0.9 }, 0.4, (input) => {
+    makeVoice(ctx, t, { attack: 0.06, peak: 0.26, decay: 0.3, sustain: 0.85, release: 0.9 }, 0.4, (input) => {
       const tone = new BiquadFilterNode(ctx, { type: 'lowpass', Q: 0.7 })
       tone.frequency.setValueAtTime(1200, t)
       tone.frequency.linearRampToValueAtTime(Math.min(hz * 9, 4000), t + 0.15)
@@ -149,7 +142,7 @@ export const INSTRUMENT_BUILDERS: Record<Instrument, Builder> = {
     }),
 
   synth: (ctx, hz, t) =>
-    makeVoice(ctx, t, { attack: 0.004, peak: 0.24, decay: 0.25, sustain: 0.5, hold: 0.35, release: 0.35 }, 0.15, (input) => {
+    makeVoice(ctx, t, { attack: 0.004, peak: 0.24, decay: 0.25, sustain: 0.5, release: 0.35 }, 0.15, (input) => {
       const tone = new BiquadFilterNode(ctx, { type: 'lowpass', Q: 6 })
       tone.frequency.setValueAtTime(hz * 1.5, t)
       tone.frequency.linearRampToValueAtTime(Math.min(hz * 16, 8000), t + 0.012)
@@ -163,7 +156,7 @@ export const INSTRUMENT_BUILDERS: Record<Instrument, Builder> = {
     }),
 
   pad: (ctx, hz, t) =>
-    makeVoice(ctx, t, { attack: 0.18, peak: 0.26, decay: 1, sustain: 1, hold: 1.5, release: 1.6 }, 0.6, (input) => {
+    makeVoice(ctx, t, { attack: 0.12, peak: 0.26, decay: 1, sustain: 1, release: 1.6 }, 0.6, (input) => {
       const tone = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: Math.min(hz * 5, 2200), Q: 0.3 })
       tone.connect(input)
       return [

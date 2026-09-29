@@ -2,9 +2,9 @@
 
 **Live:** https://jia1267.github.io/gesture-synth/
 
-Play music with your hands. The webcam feed is the instrument: MediaPipe tracks both
-hands — the **left hand picks the key**, the **right hand plays the syllables** Do–Ti
-of that key, one note per pose, to layer under your singing.
+Accompany your own singing with your hands. The webcam is the instrument: the **right
+hand** shows jianpu digits 1–6 and plays that chord of the key, the **left hand** holds
+the volume. If you can say "1-6-4-5", you can play it.
 
 Everything runs in the browser — no backend. Video never leaves the machine.
 
@@ -16,63 +16,57 @@ npm run dev
 ```
 
 Open the printed localhost URL (camera access needs `localhost` or `https`), click
-**Enable Camera**, and raise a hand.
+**开启摄像头**, and raise your right hand.
 
-## Gestures
+## Playing
 
-Gestures are Chinese finger-counting signs:
+Pick the key in the panel. Then, with the right hand (Chinese finger-counting signs):
 
-| Sign | Hand shape                          | Left hand: key | Right hand: syllable |
-| ---- | ----------------------------------- | -------------- | -------------------- |
-| 1    | index finger                        | C              | Do                   |
-| 2    | index + middle                      | D              | Re                   |
-| 3    | index + middle + ring               | E              | Mi                   |
-| 4    | four fingers, thumb folded in palm  | F              | Fa                   |
-| 5    | open hand, thumb out                | G              | Sol                  |
-| 0    | fist                                | A              | La                   |
-| 6    | thumb + pinky                       | B              | Ti                   |
+| Sign | Hand shape                          | Plays (key of C) |
+| ---- | ----------------------------------- | ---------------- |
+| 1    | index finger                        | C  (1 · Do)      |
+| 2    | index + middle                      | Dm (2 · Re)      |
+| 3    | index + middle + ring               | Em (3 · Mi)      |
+| 4    | four fingers, thumb folded in palm  | F  (4 · Fa)      |
+| 5    | open hand, thumb out                | G  (5 · Sol)     |
+| 6    | thumb + pinky                       | Am (6 · La)      |
+| 0    | fist                                | stop             |
 
-Hold fingers clearly straight or clearly folded — a relaxed, half-cupped hand is
-deliberately ignored so it doesn't play stray notes.
+- **Lean the right hand** outward (to your right) to make the chord major, inward to make
+  it minor — e.g. 3 → E instead of Em, 4 → Fm instead of F. Upright plays the key's own
+  chord. While a chord rings, leaning changes only its third.
+- **Left fist, moved up or down**, drags the volume; open the hand to let go.
+- A chord keeps sounding until you show another sign, make a fist, or keep your hand out
+  of view for about a second. Shapes the camera can't read change nothing.
+- The digit under your right wrist is what the camera reads: gold = playing, white =
+  about to play, `?` = hold your fingers clearly straight or clearly folded.
 
-A pose must be held ~100 ms before it counts. The left hand switches the key silently
-and the key stays until you pick another one; the right hand plays once per pose —
-change pose (or drop your hand) to play again. In key F the right hand plays
-F G A B♭ C D E; the guide and the note readout always show the real note names.
+With one hand in view it is the playing hand; with two, the one on your left holds the
+volume.
 
-**Hold** (panel switch): when on, a right-hand note keeps sounding for as long as you
-hold the pose, and fades out when you change pose or lower your hand. Piano still
-fades slowly on its own, since it is a struck instrument.
+## Tuning recognition with your own hands
 
-Which hand is which comes from MediaPipe's handedness, shown as `L · KEY` / `R · NOTE`
-under each wrist. If those tags come out reversed on your camera, set
-`SWAP_HANDEDNESS = true` in `src/vision/HandTracker.ts`.
-
-## Configure
-
-- **Gesture → note mapping, timing, thresholds:** `src/config/gestures.ts`
-  (`gestureMappings`, `recognition`). `stableMs` trades speed for accuracy: lower
-  responds faster, but in-between shapes while changing pose can slip out as stray notes.
-- **Instrument presets:** `src/audio/instruments.ts` (pure Web Audio, no samples).
-- **Vocal samples:** drop `do.wav … ti.wav` into `public/audio/` — see the README there.
-  Missing files fall back to a synthesized sung vowel.
+Open the site with `?rec` at the end of the URL (e.g.
+`https://jia1267.github.io/gesture-synth/?rec`). After the camera starts it prompts each
+sign for 4 seconds, then downloads `gesture-rec-*.json` with the raw hand landmarks —
+use it to set the thresholds in `src/config/gestures.ts` (`recognition`).
 
 ## Structure
 
 ```
 src/
-  App.tsx                    wiring: camera → tracker → audio → UI
-  config/gestures.ts         mappings + recognizer settings
+  App.tsx                    wiring: camera → tracker → chords / volume → UI
+  config/gestures.ts         sign → digit, recognition thresholds and timing
   vision/
-    HandTracker.ts           MediaPipe HandLandmarker loop, hand identity, smoothing
-    GestureRecognizer.ts     pose classifier + hold/cooldown debouncer
+    HandTracker.ts           MediaPipe loop, hand identity + roles, lean, volume grip
+    GestureRecognizer.ts     sign classifier + voting, sticky stabilizer
     OneEuroFilter.ts         landmark jitter filter
   audio/
-    AudioEngine.ts           mix bus, reverb, analyser, sample loading
+    AudioEngine.ts           mix bus, reverb, volume, analyser
     instruments.ts           Voice / Piano / Strings / Synth / Soft Pad
-  music/theory.ts            key → pitch spelling, solfège
+  music/theory.ts            key spelling, chords and voicing
   components/                CameraView, HandOverlay, ControlPanel, GestureGuide,
-                             HandIcon, WaveformVisualizer, CurrentNote, Landing
+                             HandIcon, WaveformVisualizer, CurrentNote, Landing, Recorder
 ```
 
 The MediaPipe WASM runtime is bundled from `node_modules`; the hand model

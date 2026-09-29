@@ -1,29 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AudioEngine, DEFAULT_VOLUME, VOLUME_RANGE, type NoteHandle } from './audio/AudioEngine'
 import type { Instrument } from './audio/instruments'
-import { CameraView } from './components/CameraView'
+import { CameraView, type OverlayState } from './components/CameraView'
 import { ControlPanel } from './components/ControlPanel'
 import { CurrentNote } from './components/CurrentNote'
 import { GestureGuide } from './components/GestureGuide'
 import { Landing } from './components/Landing'
 import { Recorder } from './components/Recorder'
 import { WaveformVisualizer } from './components/WaveformVisualizer'
-import { gestureDigits, type NoteName } from './config/gestures'
-import { chordFor, KEYS, type Chord, type Lean } from './music/theory'
+import { gestureDigits } from './config/gestures'
+import { loadSettings, saveSettings, voicingFromSign, type Settings } from './config/settings'
+import { chordFor, WHITE_KEYS, type Chord, type KeyName, type Lean, type Voicing } from './music/theory'
 import { HandTracker, type ActiveGestures } from './vision/HandTracker'
 
 type Phase = 'landing' | 'starting' | 'live'
 type Tracking = 'loading' | 'live' | 'failed'
 
-/** A chord is three notes at once, so each is quieter than a lone note. */
-const CHORD_VOICE_GAIN = 0.55
-/** Left-fist drag: volume change for moving the fist the full height of the frame. */
+/** A chord is three or four notes at once, so each is quieter than a lone note. */
+const CHORD_VOICE_GAIN = 0.5
+/** Left-hand drag: volume change for moving the hand the full height of the frame. */
 const VOLUME_PER_FRAME = 1.8
+/** When a gripping hand drops out of frame, undo this much of the drag (it was the hand falling). */
+const VOLUME_UNDO_MS = 500
 /** `?rec` in the URL turns on the guided real-hand recorder. */
 const RECORDING = new URLSearchParams(location.search).has('rec')
 
+interface Shape {
+  voicing: Voicing
+  low: boolean
+}
+const NO_SHAPE: Shape = { voicing: 'smooth', low: false }
+
 interface Sounding {
-  key: NoteName
+  key: KeyName
   degree: number
   lean: Lean
   notes: number[]
@@ -38,23 +47,32 @@ export default function App() {
   const [tracker, setTracker] = useState<HandTracker | null>(null)
   const [tracking, setTracking] = useState<Tracking>('loading')
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null)
-  const [keyName, setKeyName] = useState<NoteName>('C')
+  const [keyName, setKeyName] = useState<KeyName>('C')
   const [instrument, setInstrument] = useState<Instrument>('strings')
-  const [guideOpen, setGuideOpen] = useState(true)
+  const [settings, setSettings] = useState<Settings>(loadSettings)
+  const [open, setOpen] = useState<'guide' | 'settings' | null>('guide')
   const [active, setActive] = useState<ActiveGestures>({ left: [], right: [] })
   const [handsPresent, setHandsPresent] = useState(false)
-  const [current, setCurrent] = useState<{ chord: Chord; hit: number } | null>(null)
+  const [current, setCurrent] = useState<{ chord: Chord; low: boolean; hit: number } | null>(null)
   const sounding = useRef<Sounding | null>(null)
   const volume = useRef(DEFAULT_VOLUME)
-  /** Where the left fist grabbed, and the volume at that moment (relative drag, no jump). */
-  const grab = useRef<{ y: number; volume: number } | null>(null)
-  const getVolume = useCallback(() => volume.current, [])
+  /** Where the left hand grabbed, the volume then, and the recent drag (for undo). */
+  const grab = useRef<{ y: number; volume: number; trail: { t: number; v: number }[] } | null>(null)
 
-  // The tracker fires outside React; let it read the latest selections without re-binding.
-  const settings = useRef({ keyName, instrument })
+  // The tracker fires outside React; let it read the latest state without re-binding.
+  const live = useRef({ keyName, instrument, settings, shape: NO_SHAPE })
   useEffect(() => {
-    settings.current = { keyName, instrument }
-  }, [keyName, instrument])
+    live.current = { ...live.current, keyName, instrument, settings }
+  }, [keyName, instrument, settings])
+  const overlayState = useCallback(
+    (): OverlayState => ({
+      keyName: live.current.keyName,
+      leftHand: live.current.settings.leftHand,
+      showVolume: live.current.settings.leftVolume,
+      volume: volume.current,
+    }),
+    [],
+  )
 
   useEffect(() => {
     if (!tracker) return
@@ -69,8 +87,8 @@ export default function App() {
   }
 
   function playChord(audio: AudioEngine, degree: number, lean: Lean) {
-    const { keyName, instrument } = settings.current
-    const chord = chordFor(degree, keyName, lean)
+    const { keyName, instrument, shape } = live.current
+    const chord = chordFor(degree, keyName, { lean, ...shape })
     sounding.current?.voices.forEach((v) => v.release())
     sounding.current = {
       key: keyName,
@@ -79,37 +97,70 @@ export default function App() {
       notes: chord.notes,
       voices: chord.notes.map((midi) => audio.play(instrument, midi, degree, CHORD_VOICE_GAIN)),
     }
-    setCurrent((c) => ({ chord, hit: (c?.hit ?? 0) + 1 }))
+    setCurrent((c) => ({ chord, low: shape.low, hit: (c?.hit ?? 0) + 1 }))
   }
 
-  /** Leaning while a chord sounds re-voices only the notes that change (usually just the third). */
+  /** Re-voice the sounding chord (lean or left-hand shape changed): shared notes keep ringing. */
+  function revoice(audio: AudioEngine) {
+    const s = sounding.current
+    if (!s) return
+    const { instrument, shape } = live.current
+    const chord = chordFor(s.degree, s.key, { lean: s.lean, ...shape })
+    const kept = new Map<number, NoteHandle>()
+    s.notes.forEach((midi, i) => {
+      if (chord.notes.includes(midi)) kept.set(midi, s.voices[i])
+      else s.voices[i].release()
+    })
+    s.voices = chord.notes.map((midi) => kept.get(midi) ?? audio.play(instrument, midi, s.degree, CHORD_VOICE_GAIN))
+    s.notes = chord.notes
+    setCurrent((c) => ({ chord, low: shape.low, hit: (c?.hit ?? 0) + 1 }))
+  }
+
   function relean(audio: AudioEngine, lean: Lean) {
     const s = sounding.current
     if (!s || s.lean === lean) return
-    const chord = chordFor(s.degree, s.key, lean)
-    chord.notes.forEach((midi, i) => {
-      if (midi === s.notes[i]) return
-      s.voices[i].release()
-      s.voices[i] = audio.play(settings.current.instrument, midi, s.degree, CHORD_VOICE_GAIN)
-    })
     s.lean = lean
-    s.notes = chord.notes
-    setCurrent((c) => ({ chord, hit: (c?.hit ?? 0) + 1 }))
+    revoice(audio)
   }
 
-  function changeKey(key: NoteName) {
-    settings.current.keyName = key
+  function reshape(audio: AudioEngine, shape: Shape) {
+    live.current.shape = shape
+    revoice(audio)
+  }
+
+  function changeKey(key: KeyName) {
+    live.current.keyName = key
     setKeyName(key)
   }
 
-  function dragVolume(audio: AudioEngine, y: number | null) {
+  function changeSettings(next: Settings) {
+    const audio = audioRef.current
+    if (audio && next.leftHand !== 'voicing' && live.current.shape !== NO_SHAPE) reshape(audio, NO_SHAPE)
+    if (audio && !next.lean) relean(audio, 'none')
+    live.current.settings = next
+    setSettings(next)
+    saveSettings(next)
+  }
+
+  function dragVolume(audio: AudioEngine, y: number | null, lost = false) {
+    const g = grab.current
     if (y === null) {
+      if (g && lost) {
+        // The hand most likely dropped out of frame: undo what the fall dragged.
+        const cutoff = performance.now() - VOLUME_UNDO_MS
+        volume.current = g.trail.filter((p) => p.t <= cutoff).at(-1)?.v ?? g.volume
+        audio.setVolume(volume.current)
+      }
       grab.current = null
       return
     }
-    grab.current ??= { y, volume: volume.current }
+    if (!g) {
+      grab.current = { y, volume: volume.current, trail: [] }
+      return
+    }
     const [min, max] = VOLUME_RANGE
-    volume.current = Math.max(min, Math.min(max, grab.current.volume + (grab.current.y - y) * VOLUME_PER_FRAME))
+    volume.current = Math.max(min, Math.min(max, g.volume + (g.y - y) * VOLUME_PER_FRAME))
+    g.trail.push({ t: performance.now(), v: volume.current })
     audio.setVolume(volume.current)
   }
 
@@ -138,18 +189,28 @@ export default function App() {
 
     try {
       const handTracker = await HandTracker.create(video)
+      const mode = () => live.current.settings
       handTracker.onTrigger = (gesture, hand, lean) => {
         if (hand !== 'right') return
         const digit = gestureDigits[gesture]
         if (digit === 0) stopChord()
-        else playChord(audio, digit - 1, lean)
+        else playChord(audio, digit - 1, mode().lean ? lean : 'none')
       }
-      handTracker.onLean = (lean) => relean(audio, lean)
-      handTracker.onKey = (gesture) => changeKey(KEYS[gestureDigits[gesture] - 1])
+      handTracker.onLean = (lean) => {
+        if (mode().lean) relean(audio, lean)
+      }
+      handTracker.onKey = (gesture) => {
+        if (mode().leftHand === 'key') changeKey(WHITE_KEYS[gestureDigits[gesture] - 1])
+      }
+      handTracker.onVoicing = (sign) => {
+        if (mode().leftHand === 'voicing') reshape(audio, voicingFromSign(sign))
+      }
+      handTracker.onGrip = (y, lost) => {
+        if (mode().leftVolume || y === null) dragVolume(audio, y, lost)
+      }
       handTracker.onLost = (hand) => {
         if (hand === 'right') stopChord()
       }
-      handTracker.onGrip = (y) => dragVolume(audio, y)
       handTracker.onActiveChange = setActive
       handTracker.onPresenceChange = setHandsPresent
       setTracker(handTracker)
@@ -160,38 +221,40 @@ export default function App() {
     }
   }
 
-  const live = phase === 'live'
+  const isLive = phase === 'live'
   const hint =
     tracking === 'loading' ? '正在加载手部识别…'
     : tracking === 'failed' ? '手部识别加载失败，请检查网络后刷新'
     : handsPresent ? ''
-    : '左手比数字换调 · 右手比数字弹和弦'
+    : '右手比 1–7 弹和弦 · 握拳停'
 
   return (
     <>
-      <CameraView videoRef={videoRef} tracker={tracker} live={live} getVolume={getVolume} keyName={keyName} />
+      <CameraView videoRef={videoRef} tracker={tracker} live={isLive} getState={overlayState} />
       <WaveformVisualizer analyser={analyser} />
 
-      {live && (
+      {isLive && (
         <>
           <ControlPanel
             keyName={keyName}
             onKeyChange={changeKey}
             instrument={instrument}
             onInstrumentChange={setInstrument}
-            guideOpen={guideOpen}
-            onToggleGuide={() => setGuideOpen((o) => !o)}
+            settings={settings}
+            onSettingsChange={changeSettings}
+            open={open}
+            onOpen={setOpen}
             tracking={tracking}
           >
-            <GestureGuide keyName={keyName} active={active} />
+            <GestureGuide keyName={keyName} active={active} settings={settings} />
           </ControlPanel>
           <p className="hint" data-visible={hint !== ''} role="status">{hint}</p>
-          <CurrentNote keyName={keyName} chord={current?.chord ?? null} hit={current?.hit ?? 0} />
+          <CurrentNote keyName={keyName} chord={current?.chord ?? null} low={current?.low ?? false} hit={current?.hit ?? 0} />
           {RECORDING && tracker && <Recorder tracker={tracker} />}
         </>
       )}
 
-      <Landing hidden={live} starting={phase === 'starting'} error={cameraError} onEnable={enable} />
+      <Landing hidden={isLive} starting={phase === 'starting'} error={cameraError} onEnable={enable} />
     </>
   )
 }

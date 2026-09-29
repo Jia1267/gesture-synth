@@ -1,8 +1,10 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { VOLUME_RANGE } from '../audio/AudioEngine'
-import { gestureDigits, type NoteName } from '../config/gestures'
-import { KEYS } from '../music/theory'
+import { gestureDigits } from '../config/gestures'
+import { VOICING_LABELS, voicingFromSign } from '../config/settings'
+import { keyLabel, WHITE_KEYS } from '../music/theory'
 import type { HandTracker, TrackedHand } from '../vision/HandTracker'
+import type { OverlayState } from './CameraView'
 
 const CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -19,29 +21,33 @@ const VOLUME_BAR_H = 100
 interface Props {
   tracker: HandTracker | null
   videoRef: RefObject<HTMLVideoElement | null>
-  getVolume: () => number
-  keyName: NoteName
+  getState: () => OverlayState
 }
 
-/** What to write under a wrist: the chord digit (right hand) or the key it selects (left hand). */
-function wristLabel(hand: TrackedHand, key: NoteName): { text: string; done: boolean } | null {
+/**
+ * What to write under a wrist: the chord digit (right hand), or for the left hand the key it
+ * is selecting (gold once switched) or the chord shape it holds, depending on the setting.
+ */
+function wristLabel(hand: TrackedHand, state: OverlayState): { text: string; done: boolean } | null {
   const digit = hand.seen ? gestureDigits[hand.seen] : null
   if (hand.role === 'right') return { text: digit === null ? '?' : String(digit), done: !!hand.seen && hand.seen === hand.active }
-  if (!digit) return null
-  const letter = KEYS[digit - 1]
-  return { text: `1=${letter}`, done: letter === key }
+  if (state.leftHand === 'key' && digit) {
+    const key = WHITE_KEYS[digit - 1]
+    return { text: `1=${keyLabel(key)}`, done: key === state.keyName && hand.keyProgress >= 1 }
+  }
+  if (state.leftHand === 'voicing' && hand.voicing) {
+    const { voicing, low } = voicingFromSign(hand.voicing)
+    return { text: VOICING_LABELS[voicing] + (low ? '↓' : ''), done: true }
+  }
+  return null
 }
 
 /**
  * Draws landmarks in unmirrored video space; the canvas shares the video's box and
  * mirror transform, so the dots stay locked to the hand under object-fit: cover.
  */
-export function HandOverlay({ tracker, videoRef, getVolume, keyName }: Props) {
+export function HandOverlay({ tracker, videoRef, getState }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const keyRef = useRef(keyName)
-  useEffect(() => {
-    keyRef.current = keyName
-  }, [keyName])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -70,6 +76,7 @@ export function HandOverlay({ tracker, videoRef, getVolume, keyName }: Props) {
       const ox = (W - dw) / 2
       const oy = (H - dh) / 2
       const now = performance.now()
+      const state = getState()
 
       for (const hand of tracker.hands) {
         if (!hand.visible || hand.points.length === 0) continue
@@ -92,7 +99,8 @@ export function HandOverlay({ tracker, videoRef, getVolume, keyName }: Props) {
         ctx.fillStyle = '#fff'
         circles(ctx, pts, (i) => (TIPS.has(i) ? 4.5 : 3.5) * grow)
 
-        const label = hand.gripping ? null : wristLabel(hand, keyRef.current)
+        const gripping = hand.gripping && state.showVolume
+        const label = gripping ? null : wristLabel(hand, state)
         if (label) {
           // What the camera reads, big enough to see from singing distance; gold once in effect.
           ctx.save()
@@ -104,11 +112,19 @@ export function HandOverlay({ tracker, videoRef, getVolume, keyName }: Props) {
           ctx.shadowBlur = 6
           ctx.fillStyle = label.done ? GOLD : 'rgba(255, 255, 255, 0.85)'
           ctx.fillText(label.text, 0, 0)
+          // Key change: a bar fills while the sign is held; the key switches when it is full.
+          if (hand.role === 'left' && state.leftHand === 'key' && hand.keyProgress > 0 && hand.keyProgress < 1) {
+            ctx.shadowBlur = 0
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'
+            ctx.fillRect(-36, 12, 72, 4)
+            ctx.fillStyle = GOLD
+            ctx.fillRect(-36, 12, 72 * hand.keyProgress, 4)
+          }
           ctx.restore()
-        } else if (hand.gripping) {
-          // Volume level beside the left fist while it holds the volume.
+        } else if (gripping) {
+          // Volume level beside the left hand while it holds the volume.
           const [min, max] = VOLUME_RANGE
-          const level = Math.max(0, Math.min(1, (getVolume() - min) / (max - min)))
+          const level = Math.max(0, Math.min(1, (state.volume - min) / (max - min)))
           const x = pts[0][0] - 46
           const top = pts[0][1] - 110
           ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
@@ -125,7 +141,7 @@ export function HandOverlay({ tracker, videoRef, getVolume, keyName }: Props) {
 
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [tracker, videoRef, getVolume])
+  }, [tracker, videoRef, getState])
 
   return <canvas ref={canvasRef} className="camera__overlay" />
 }

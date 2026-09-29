@@ -9,14 +9,15 @@ const STEPS = [
   { label: '3', say: '右手比 3' },
   { label: '4', say: '右手比 4' },
   { label: '5', say: '右手比 5' },
-  { label: '6', say: '右手比 6' },
-  { label: '7', say: '右手比 7（拇指 + 食指 + 小指）' },
+  { label: '6', say: '右手比 6（食指 + 小指 🤘）' },
+  { label: '7', say: '右手比 7（拇指 + 食指 + 小指 🤟）' },
   { label: '0', say: '右手握拳' },
   { label: 'relaxed', say: '右手放松，留在画面里' },
-  { label: 'switch', say: '右手在 1–7 之间随意切换' },
+  { label: 'switch', say: '右手弹 1 6 4 5，按平时的速度' },
   { label: 'lean', say: '右手比 1，往外倾、回正、往内倾' },
   { label: 'left-keys', say: '左手在 1–7 之间慢慢换，右手放下' },
-  { label: 'left-fist', say: '左手握拳上下移动，右手比 1' },
+  { label: 'left-voicing', say: '左手依次伸 1、2、3、4 根手指，再伸出拇指' },
+  { label: 'left-fist', say: '左手握拳（或拿手机）上下移动，右手比 1' },
 ]
 const STEP_MS = 4000
 const COUNTDOWN_MS = 3000

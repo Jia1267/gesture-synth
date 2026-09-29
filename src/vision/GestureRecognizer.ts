@@ -49,20 +49,28 @@ function bend(p: Point3[], [mcp, , , tip]: readonly number[]) {
   return angle(sub(p[mcp], p[0]), sub(p[tip], p[mcp]))
 }
 
+/** Which fingers are up (index, middle, ring, pinky), how far each bends, and whether the thumb is out. */
+export function fingerState(p: Point3[]) {
+  const palm = dist(p[0], p[9])
+  const bends = [FINGERS.index, FINGERS.middle, FINGERS.ring, FINGERS.pinky].map((f) => bend(p, f))
+  return {
+    bends,
+    up: bends.map((b) => b < recognition.upMaxDeg),
+    thumbOut: thumbSpread(p) > palm * recognition.thumbOut,
+  }
+}
+
 /**
  * Classify one hand from its 21 world landmarks (metric, camera-orientation independent).
  * Returns null when the pose matches none of the signs — including a relaxed, half-curled
  * hand, which must not pass for a fist because a fist stops the music.
  */
 export function classifyGesture(p: Point3[]): GestureId | null {
-  const palm = dist(p[0], p[9])
-  const bends = [FINGERS.index, FINGERS.middle, FINGERS.ring, FINGERS.pinky].map((f) => bend(p, f))
-  const [index, middle, ring, pinky] = bends.map((b) => b < recognition.upMaxDeg)
-  const thumbOut = thumbSpread(p) > palm * recognition.thumbOut
+  const { bends, up, thumbOut } = fingerState(p)
+  const [index, middle, ring, pinky] = up
 
   if (index && middle && ring && pinky) return thumbOut ? 'five' : 'four'
-  if (pinky && thumbOut && !index && !middle && !ring) return 'six'
-  if (index && pinky && thumbOut && !middle && !ring) return 'seven'
+  if (index && pinky && !middle && !ring) return thumbOut ? 'seven' : 'six'
   if (index && middle && ring && !pinky) return 'three'
   if (index && middle && !ring && !pinky) return 'two'
   if (index && !middle && !ring && !pinky) return 'one'
@@ -70,21 +78,43 @@ export function classifyGesture(p: Point3[]): GestureId | null {
   return null
 }
 
+/** No finger up: a fist, a relaxed hand, or a hand holding a mic or phone. */
+export function isClosedHand(p: Point3[]) {
+  return fingerState(p).up.every((u) => !u)
+}
+
+/**
+ * Left-hand chord-shape sign, counted like the reference instrument: how many fingers are up
+ * (1–4, any fingers) plus "L" when the thumb is out (one octave lower). null = no fingers up.
+ */
+export function voicingSign(p: Point3[]): string | null {
+  const { up, thumbOut } = fingerState(p)
+  const count = up.filter(Boolean).length
+  return count === 0 ? null : `${count}${thumbOut ? 'L' : ''}`
+}
+
 /**
  * Turns one hand's per-frame guesses into sign changes.
  * - Unrecognized frames are ignored, so whatever is playing keeps playing (sticky hold).
  * - A new sign takes over once `minFrames` of the last 4 recognized frames agree, spanning
- *   at least `minHoldMs` — one stray frame no longer restarts the wait.
+ *   at least its hold time — one stray frame no longer restarts the wait.
  */
-export class GestureStabilizer {
+export class Stabilizer<T extends string> {
   /** The sign currently in effect. */
-  active: GestureId | null = null
+  active: T | null = null
   /** What the hand looks like right now, for on-screen feedback; null = can't tell. */
-  seen: GestureId | null = null
-  private recent: { t: number; g: GestureId }[] = []
+  seen: T | null = null
+  private recent: { t: number; g: T }[] = []
+  /** The current streak of one recognized sign (unrecognized frames don't break it). */
+  private streak: { sign: T; since: number } | null = null
+  private holdFor: (sign: T) => number
+
+  constructor(holdFor: (sign: T) => number = () => recognition.minHoldMs) {
+    this.holdFor = holdFor
+  }
 
   /** Feed one frame. Returns the sign that takes effect on this frame, if any. */
-  update(raw: GestureId | null, now: number): GestureId | null {
+  update(raw: T | null, now: number): T | null {
     this.recent = this.recent.filter((f) => now - f.t < recognition.voteWindowMs)
     if (!raw) {
       if (this.recent.length === 0) this.seen = null
@@ -93,10 +123,16 @@ export class GestureStabilizer {
     this.recent.push({ t: now, g: raw })
     if (this.recent.length > 4) this.recent.shift()
     this.seen = raw
+    if (this.streak?.sign !== raw) this.streak = { sign: raw, since: now }
     if (raw === this.active) return null
-    const votes = this.recent.filter((f) => f.g === raw)
-    if (votes.length < recognition.minFrames || now - votes[0].t < recognition.minHoldMs) return null
+    // Hold time runs from the streak's first frame, so holds longer than 4 frames still work.
+    const votes = this.recent.filter((f) => f.g === raw).length
+    if (votes < recognition.minFrames || now - this.streak.since < this.holdFor(raw)) return null
     this.active = raw
     return raw
   }
 }
+
+/** Stabilizer for the number signs: 7 waits a little longer (see `rareHoldMs`). */
+export const signStabilizer = () =>
+  new Stabilizer<GestureId>((g) => (g === 'seven' ? recognition.rareHoldMs : recognition.minHoldMs))

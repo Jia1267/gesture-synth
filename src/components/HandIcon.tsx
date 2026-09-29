@@ -15,7 +15,7 @@ const POSES: Record<GestureId, Pose> = {
   four: { up: ['index', 'middle', 'ring', 'pinky'], thumb: 'in' },
   five: { up: ['index', 'middle', 'ring', 'pinky'], thumb: 'out' },
   zero: { up: [], thumb: 'in' },
-  six: { up: ['pinky'], thumb: 'out' },
+  six: { up: ['index', 'pinky'], thumb: 'in' },
   seven: { up: ['index', 'pinky'], thumb: 'out' },
 }
 

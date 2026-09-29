@@ -1,12 +1,14 @@
-/** Chinese finger-counting signs 1–6, 🤟 for 7, and a fist for 0. */
+/**
+ * Signs: finger counting 1–5, 🤘 for 6 and 🤟 for 7 (as in the reference instrument), a fist for 0.
+ * With 6 = index + pinky, going 1 → 6 only raises the pinky, and 6 ↔ 7 only moves the thumb,
+ * so the common 1-6-4-5 changes don't pass through another sign.
+ */
 export type GestureId = 'one' | 'two' | 'three' | 'four' | 'five' | 'six' | 'seven' | 'zero'
-export type NoteName = 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B'
 
 /**
- * The jianpu digit each sign shows.
- * Right hand: 1–7 play the chord on that degree of the current key (in C: C Dm Em F G Am B°);
- * 0 — a fist, which is also what a relaxed hand looks like — stops the chord.
- * Left hand: 1–7 switch the key to C D E F G A B; a fist grabs the volume.
+ * The jianpu digit each sign shows. Right hand: 1–7 play the chord on that degree of the key
+ * (in C: C Dm Em F G Am B°); 0 — a fist, which is also what a relaxed hand looks like — stops.
+ * Left hand (when set to change key): 1–7 switch to C D E F G A B.
  */
 export const gestureDigits: Record<GestureId, number> = {
   one: 1,
@@ -25,17 +27,17 @@ export const gestureLabels: Record<GestureId, string> = {
   three: '3：食指 + 中指 + 无名指',
   four: '4：四指伸直，拇指折进掌心',
   five: '5：五指张开',
-  six: '6：拇指 + 小指',
-  seven: '7：拇指 + 食指 + 小指',
+  six: '6：食指 + 小指 🤘',
+  seven: '7：拇指 + 食指 + 小指 🤟',
   zero: '0：握拳',
 }
 
 /** Recognition thresholds and timing. Tune these against real-hand recordings (?rec). */
 export const recognition = {
   /*
-   * Thresholds below are set from a real-hand ?rec recording (2026-09-29, ~36 fps):
+   * Thresholds below are set from real-hand ?rec recordings (2026-09-29, ~36–40 fps):
    * straight fingers 5–45°, bent fingers 93–160°, mid-change shapes 63–88°;
-   * thumb folded (4, and 3 holding the pinky) ≤ 0.47 palm, thumb out (5, 6) ≥ 1.16.
+   * thumb folded (4, and 3 holding the pinky) ≤ 0.47 palm, thumb out (5) ≥ 1.16.
    */
   /** A finger counts as up when its knuckle→tip direction is within this many degrees of the palm's. */
   upMaxDeg: 60,
@@ -47,6 +49,8 @@ export const recognition = {
   minFrames: 3,
   /** …spanning at least this long, so 60 fps cameras don't react to in-between shapes. */
   minHoldMs: 50,
+  /** 7 is the rarest chord and sits next to 5 and 6, so it must be held a little longer. */
+  rareHoldMs: 150,
   /** Recognized frames older than this no longer vote. */
   voteWindowMs: 250,
   /** Right-hand lean in degrees (+ = toward the player's right, "outward"): past `enter` it forces major/minor… */
@@ -55,11 +59,11 @@ export const recognition = {
   leanExitDeg: 15,
   /** A lean must hold this long before the chord changes. */
   leanDwellMs: 150,
-  /** A left fist must hold this long before it grabs the volume. */
+  /** A closed left hand (fist, or holding a mic or phone) must hold this long before it grabs the volume. */
   gripDwellMs: 150,
   /**
-   * A left-hand sign must hold this long before it changes the key, so a hand that merely
-   * opens doesn't (a recorded casual open hand lasted 0.47 s; a deliberate sign, well over 1 s).
+   * A left-hand sign must be seen unbroken this long before it changes the key, so a hand that
+   * merely opens doesn't (a recorded casual open hand lasted 0.47 s; a deliberate sign 1.76 s).
    */
-  keyHoldMs: 500,
+  keyHoldMs: 1000,
 }

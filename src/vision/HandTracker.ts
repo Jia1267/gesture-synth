@@ -3,7 +3,7 @@ import wasmLoaderPath from '@mediapipe/tasks-vision/vision_wasm_internal.js?url'
 import wasmBinaryPath from '@mediapipe/tasks-vision/vision_wasm_internal.wasm?url'
 import { recognition, type GestureId } from '../config/gestures'
 import type { Lean } from '../music/theory'
-import { classifyGesture, GestureStabilizer } from './GestureRecognizer'
+import { classifyGesture, isClosedHand, signStabilizer, Stabilizer, voicingSign, type Point3 } from './GestureRecognizer'
 import { OneEuroFilter } from './OneEuroFilter'
 
 const MODEL_URL =
@@ -31,24 +31,28 @@ export interface TrackedHand {
   /** The sign in effect, and what the hand looks like right now (null = can't tell). */
   active: GestureId | null
   seen: GestureId | null
-  /** Left hand only: a fist is currently holding the volume. */
+  /** Left hand only: a closed hand is currently holding the volume. */
   gripping: boolean
+  /** Left hand only: the chord-shape sign in effect ("1"–"4", "L" = thumb out), and while being held. */
+  voicing: string | null
+  /** Left hand only: how far into the key-change hold (0–1), for on-screen progress. */
+  keyProgress: number
 }
 
 type FrameListener = (result: HandLandmarkerResult, hands: readonly TrackedHand[], now: number) => void
 
 interface Track extends TrackedHand {
   filters: OneEuroFilter[]
-  stabilizer: GestureStabilizer
+  stabilizer: Stabilizer<GestureId>
+  voicingStabilizer: Stabilizer<string>
   lastSeen: number
   lean: Lean
   leanPending: { to: Lean; since: number } | null
   gripSince: number | null
   /** Smoothed model vote that this is the player's right hand, 0–1. */
   rightness: number
-  /** Left hand: the unbroken run of one raw sign, and the sign whose key was last sent. */
-  keyRun: { sign: GestureId; since: number } | null
-  keySent: GestureId | null
+  /** Left hand: the unbroken run of one raw sign, and whether that run already changed the key. */
+  keyRun: { sign: GestureId; since: number; fired: boolean } | null
 }
 
 /** Runs MediaPipe on a video element every new frame and turns hands into musical events. */
@@ -57,10 +61,15 @@ export class HandTracker {
   onTrigger: (gesture: GestureId, hand: HandRole, lean: Lean) => void = () => {}
   /** The right hand's lean changed. */
   onLean: (lean: Lean) => void = () => {}
-  /** The left hand has held a number sign for `keyHoldMs`: switch to that key. */
+  /** The left hand has shown a number sign unbroken for `keyHoldMs` (once per hold). */
   onKey: (gesture: GestureId) => void = () => {}
-  /** Left fist holding the volume: wrist height (0 = top … 1 = bottom) every frame; null on release. */
-  onGrip: (y: number | null) => void = () => {}
+  /** The left hand's chord-shape sign changed ("1"–"4", with "L" when the thumb is out). */
+  onVoicing: (sign: string) => void = () => {}
+  /**
+   * A closed left hand is holding the volume: wrist height (0 = top … 1 = bottom) every frame.
+   * null on release; `lost` = released because the hand left the frame (it was probably lowered).
+   */
+  onGrip: (y: number | null, lost?: boolean) => void = () => {}
   /** A hand that was holding a sign has been out of sight for LOST_GRACE_MS. */
   onLost: (hand: HandRole) => void = () => {}
   onActiveChange: (active: ActiveGestures) => void = () => {}
@@ -144,13 +153,15 @@ export class HandTracker {
     this.assignRoles(seen)
 
     seen.forEach((track, i) => {
-      const raw = classifyGesture(result.worldLandmarks[i])
+      const world: Point3[] = result.worldLandmarks[i]
+      const raw = classifyGesture(world)
       const fired = track.stabilizer.update(raw, now)
       track.active = track.stabilizer.active
       track.seen = track.stabilizer.seen
       this.updateLean(track, now)
-      this.updateGrip(track, raw, now)
+      this.updateGrip(track, isClosedHand(world), now)
       this.updateKey(track, raw, now)
+      this.updateVoicing(track, world, now)
       if (fired) {
         track.pulseAt = now
         this.onTrigger(fired, track.role, track.lean)
@@ -159,7 +170,8 @@ export class HandTracker {
 
     for (const track of unmatched) {
       track.visible = false
-      this.releaseGrip(track)
+      track.keyRun = null
+      this.releaseGrip(track, true)
     }
     const kept: Track[] = []
     for (const track of this.tracks) {
@@ -199,21 +211,28 @@ export class HandTracker {
   }
 
   /**
-   * A left-hand number sign seen continuously for `keyHoldMs` switches the key (once per hold).
+   * A left-hand number sign seen unbroken for `keyHoldMs` switches the key, once per hold.
    * Uses this frame's raw shape, not the sticky sign, so a hand that relaxes never commits.
    */
   private updateKey(track: Track, raw: GestureId | null, now: number) {
     if (track.role !== 'left' || !raw || raw === 'zero') {
       track.keyRun = null
+      track.keyProgress = 0
       return
     }
-    if (track.keyRun?.sign !== raw) {
-      track.keyRun = { sign: raw, since: now }
-      return
-    }
-    if (raw === track.keySent || now - track.keyRun.since < recognition.keyHoldMs) return
-    track.keySent = raw
+    if (track.keyRun?.sign !== raw) track.keyRun = { sign: raw, since: now, fired: false }
+    track.keyProgress = Math.min(1, (now - track.keyRun.since) / recognition.keyHoldMs)
+    if (track.keyRun.fired || track.keyProgress < 1) return
+    track.keyRun.fired = true
     this.onKey(raw)
+  }
+
+  /** Left-hand chord shape: finger count 1–4 (+ thumb out = lower octave), stabilized like signs. */
+  private updateVoicing(track: Track, world: Point3[], now: number) {
+    if (track.role !== 'left') return
+    const fired = track.voicingStabilizer.update(voicingSign(world), now)
+    track.voicing = track.voicingStabilizer.active
+    if (fired) this.onVoicing(fired)
   }
 
   /** Right hand leaning past a wide dead zone, held briefly, forces a major or minor chord. */
@@ -248,11 +267,11 @@ export class HandTracker {
   }
 
   /**
-   * A clear left fist, held briefly, grabs the volume; opening the hand lets go. Uses this
-   * frame's raw shape (not the sticky sign) so relaxing the hand releases at once.
+   * A closed left hand (fist, or one holding a mic or phone), held briefly, grabs the volume;
+   * raising any finger lets go. Uses this frame's shape so opening the hand releases at once.
    */
-  private updateGrip(track: Track, raw: GestureId | null, now: number) {
-    if (track.role !== 'left' || raw !== 'zero') {
+  private updateGrip(track: Track, closed: boolean, now: number) {
+    if (track.role !== 'left' || !closed) {
       this.releaseGrip(track)
       return
     }
@@ -262,11 +281,11 @@ export class HandTracker {
     this.onGrip(track.points[0].y)
   }
 
-  private releaseGrip(track: Track) {
+  private releaseGrip(track: Track, lost = false) {
     track.gripSince = null
     if (!track.gripping) return
     track.gripping = false
-    this.onGrip(null)
+    this.onGrip(null, lost)
   }
 
   private match(wrist: NormalizedLandmark, candidates: Set<Track>) {
@@ -292,15 +311,17 @@ export class HandTracker {
       active: null,
       seen: null,
       gripping: false,
+      voicing: null,
+      keyProgress: 0,
       filters: Array.from({ length: 42 }, () => new OneEuroFilter()),
-      stabilizer: new GestureStabilizer(),
+      stabilizer: signStabilizer(),
+      voicingStabilizer: new Stabilizer<string>(),
       lastSeen: 0,
       lean: 'none',
       leanPending: null,
       gripSince: null,
       rightness: 0.5,
       keyRun: null,
-      keySent: null,
     }
     this.tracks.push(track)
     return track

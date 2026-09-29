@@ -1,0 +1,609 @@
+:root {
+  --bg: #070708;
+  --panel-bg: rgba(14, 14, 16, 0.62);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --control-bg: rgba(255, 255, 255, 0.05);
+  --control-hover: rgba(255, 255, 255, 0.09);
+  --control-border: rgba(255, 255, 255, 0.11);
+  --text: rgba(255, 255, 255, 0.92);
+  --text-dim: rgba(255, 255, 255, 0.6);
+  --text-faint: rgba(255, 255, 255, 0.4);
+  --gold: #f2c14e;
+  --gold-soft: rgba(242, 193, 78, 0.13);
+  --gold-line: rgba(242, 193, 78, 0.38);
+  --icon-cut: #16161a;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --font: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --wave-bottom: 3vh;
+  --wave-height: 140px;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- Camera ---------- */
+
+.camera {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  transition: opacity 400ms var(--ease-out);
+}
+
+.camera[data-live='true'] {
+  opacity: 1;
+}
+
+.camera__video,
+.camera__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1);
+}
+
+.camera__video {
+  object-fit: cover;
+}
+
+/* Quiet floor under the waveform so the gold line reads on bright rooms. */
+.camera::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.45), transparent 32%);
+  pointer-events: none;
+}
+
+.camera__overlay {
+  z-index: 1;
+}
+
+/* ---------- Waveform ---------- */
+
+.waveform {
+  position: fixed;
+  left: 0;
+  bottom: var(--wave-bottom);
+  z-index: 3;
+  width: 100%;
+  height: var(--wave-height);
+  pointer-events: none;
+}
+
+/* ---------- Control panel ---------- */
+
+.panel {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 4;
+  width: 184px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  scrollbar-width: none;
+  animation: panel-in 280ms var(--ease-out) both;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+.panel__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 14px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.panel__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.panel__dot[data-status='loading'] {
+  animation: blink 1s ease-in-out infinite alternate;
+}
+
+.panel__dot[data-status='live'] {
+  background: var(--gold);
+  box-shadow: 0 0 8px var(--gold);
+}
+
+.panel__dot[data-status='failed'] {
+  background: #e5484d;
+}
+
+@keyframes blink {
+  to {
+    opacity: 0.25;
+  }
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.field__label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.select {
+  appearance: none;
+  width: 100%;
+  height: 32px;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  background: var(--control-bg)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0h10L5 6z' fill='%23ffffff' fill-opacity='.6'/%3E%3C/svg%3E")
+    no-repeat right 10px center / 8px 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.select option {
+  background: #161618;
+  color: #eee;
+}
+
+.key-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  line-height: 30px;
+}
+
+.key-readout__value {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--gold);
+  animation: key-change 220ms var(--ease-out);
+}
+
+@keyframes key-change {
+  from {
+    opacity: 0.2;
+    transform: translateY(-3px);
+  }
+}
+
+.key-readout__hint {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.btn-guide {
+  width: 100%;
+  height: 32px;
+  margin-top: 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background-color 150ms ease, color 150ms ease;
+}
+
+.btn-guide:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .select:hover,
+  .btn-guide:hover {
+    background-color: var(--control-hover);
+    color: var(--text);
+  }
+}
+
+.select:focus-visible,
+.btn-guide:focus-visible,
+.landing__cta:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.panel__guide {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 240ms var(--ease-out), opacity 180ms ease;
+}
+
+.panel__guide[data-open='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.panel__guide-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- Gesture guide ---------- */
+
+.guide__title {
+  margin: 16px 0 6px 2px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.guide__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide__head,
+.guide__row {
+  display: grid;
+  grid-template-columns: 22px 30px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 16px;
+}
+
+.guide__head {
+  margin-bottom: 2px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.guide__head span:first-child {
+  grid-column: 1 / 3;
+}
+
+.guide__row {
+  position: relative;
+  height: 38px;
+  border-radius: 5px;
+  color: var(--text-dim);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.guide__row::before {
+  content: '→';
+  position: absolute;
+  left: 4px;
+  font-size: 11px;
+  color: var(--gold);
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity 120ms ease, transform 160ms var(--ease-out);
+}
+
+/* Left-hand column: the key this gesture selects. */
+.guide__key {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.guide__key[data-current] {
+  color: var(--gold);
+  box-shadow: inset 0 0 0 1px var(--gold-line);
+}
+
+.guide__key[data-held] {
+  background: var(--gold);
+  color: #17130a;
+  box-shadow: 0 0 12px rgba(242, 193, 78, 0.35);
+}
+
+/* Right-hand column: the note this gesture plays in the current key. */
+.guide__play {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.guide__note {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Opaque color + group opacity, so overlapping shapes don't stack into brighter spots. */
+.guide__icon {
+  width: 30px;
+  height: 30px;
+  color: #fff;
+  opacity: 0.72;
+}
+
+.guide__syllable {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.guide__row[data-active] {
+  background: var(--gold-soft);
+  box-shadow: inset 0 0 0 1px var(--gold-line), 0 0 18px rgba(242, 193, 78, 0.16);
+}
+
+.guide__row[data-active]::before {
+  opacity: 1;
+  transform: none;
+}
+
+.guide__row[data-active] :is(.guide__note, .guide__icon, .guide__syllable),
+.guide__row:has(.guide__key[data-held]) .guide__icon {
+  color: var(--gold);
+  opacity: 1;
+}
+
+/* ---------- Current note ---------- */
+
+.current-note {
+  position: fixed;
+  right: clamp(20px, 3vw, 44px);
+  bottom: calc(var(--wave-bottom) + var(--wave-height) - 10px);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.current-note__inner {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font-weight: 300;
+  line-height: 1;
+  color: #fff;
+  opacity: 0.22;
+  animation: note-hit 200ms var(--ease-out);
+}
+
+@keyframes note-hit {
+  from {
+    opacity: 0.6;
+    transform: translateY(4px);
+  }
+}
+
+.current-note__name {
+  font-size: clamp(64px, 9vw, 132px);
+  letter-spacing: -0.02em;
+}
+
+.current-note__syllable {
+  font-size: clamp(18px, 2vw, 28px);
+}
+
+/* ---------- Hint ---------- */
+
+.hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--wave-bottom) + var(--wave-height) + 8px);
+  z-index: 3;
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+}
+
+/* Wait a beat before nagging, so brief tracking dropouts stay silent. */
+.hint[data-visible='true'] {
+  opacity: 1;
+  transition-delay: 600ms;
+}
+
+/* ---------- Landing ---------- */
+
+.landing {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px calc(var(--wave-height) + 24px);
+  text-align: center;
+  transition: opacity 300ms var(--ease-out), visibility 0s linear 0s;
+}
+
+.landing[data-hidden='true'] {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 250ms var(--ease-out), visibility 0s linear 250ms;
+}
+
+.landing__hand {
+  width: 92px;
+  height: 92px;
+  margin-bottom: 28px;
+  overflow: visible;
+}
+
+.landing__hand line {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 0.6;
+}
+
+.landing__hand circle {
+  fill: #fff;
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.7));
+}
+
+.landing__title {
+  margin: 0;
+  font-size: clamp(36px, 6vw, 64px);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+.landing__tagline {
+  margin: 12px 0 36px;
+  font-size: 15px;
+  color: var(--text-dim);
+}
+
+.landing__cta {
+  min-width: 200px;
+  height: 48px;
+  padding: 0 28px;
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  background: var(--gold);
+  color: #17130a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background-color 150ms ease, opacity 150ms ease;
+}
+
+.landing__cta:active {
+  transform: scale(0.97);
+}
+
+.landing__cta:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .landing__cta:hover:not(:disabled) {
+    background: #f6cf6f;
+  }
+}
+
+.landing__error {
+  min-height: 1.5em;
+  max-width: 34ch;
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: #ff8f8f;
+}
+
+.landing__note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---------- Tablet / small screens ---------- */
+
+@media (max-width: 720px) {
+  :root {
+    --wave-height: 110px;
+  }
+
+  .panel {
+    top: 12px;
+    left: 12px;
+    width: 164px;
+    padding: 10px;
+  }
+
+  .guide__row {
+    height: 34px;
+    gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .current-note__inner,
+  .key-readout__value {
+    animation-name: fade-in;
+  }
+
+  .panel__dot[data-status='loading'] {
+    animation: none;
+  }
+
+  .btn-guide:active,
+  .landing__cta:active {
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}

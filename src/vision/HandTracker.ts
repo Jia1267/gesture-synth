@@ -42,7 +42,9 @@ interface Track extends TrackedHand {
 
 /** Runs MediaPipe on a video element every new frame and turns hands into gesture events. */
 export class HandTracker {
-  onTrigger: (gesture: GestureId, hand: HandRole) => void = () => {}
+  onTrigger: (gesture: GestureId, hand: HandRole, handId: number) => void = () => {}
+  /** A hand's held gesture ended: it changed pose, relaxed, or left the frame. */
+  onRelease: (hand: HandRole, handId: number) => void = () => {}
   onActiveChange: (active: ActiveGestures) => void = () => {}
   onPresenceChange: (present: boolean) => void = () => {}
 
@@ -119,15 +121,22 @@ export class HandTracker {
     this.assignRoles(seen)
 
     seen.forEach((track, i) => {
+      const held = track.stabilizer.active
       const fired = track.stabilizer.update(classifyGesture(result.worldLandmarks[i]), now)
+      if (held && track.stabilizer.active !== held) this.onRelease(track.role, track.id)
       if (fired) {
         track.pulseAt = now
-        this.onTrigger(fired, track.role)
+        this.onTrigger(fired, track.role, track.id)
       }
     })
 
     for (const track of unmatched) track.visible = false
-    this.tracks = this.tracks.filter((t) => now - t.lastSeen < LOST_GRACE_MS)
+    const kept: Track[] = []
+    for (const track of this.tracks) {
+      if (now - track.lastSeen < LOST_GRACE_MS) kept.push(track)
+      else if (track.stabilizer.active) this.onRelease(track.role, track.id)
+    }
+    this.tracks = kept
 
     const visible = this.tracks.filter((t) => t.visible)
     const active: ActiveGestures = { left: [], right: [] }

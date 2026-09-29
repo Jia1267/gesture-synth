@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AudioEngine } from './audio/AudioEngine'
+import { AudioEngine, type NoteHandle } from './audio/AudioEngine'
 import type { Instrument } from './audio/instruments'
 import { CameraView } from './components/CameraView'
 import { ControlPanel } from './components/ControlPanel'
@@ -24,16 +24,32 @@ export default function App() {
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null)
   const [keyName, setKeyName] = useState<NoteName>('C')
   const [instrument, setInstrument] = useState<Instrument>('strings')
+  const [sustain, setSustain] = useState(false)
   const [guideOpen, setGuideOpen] = useState(true)
   const [active, setActive] = useState<ActiveGestures>({ left: [], right: [] })
   const [handsPresent, setHandsPresent] = useState(false)
   const [current, setCurrent] = useState<{ pitch: Pitch; hit: number } | null>(null)
+  /** Sustained right-hand notes, by tracked hand id. */
+  const heldNotes = useRef(new Map<number, NoteHandle>())
 
   // The tracker fires outside React; let it read the latest selections without re-binding.
-  const settings = useRef({ keyName, instrument })
+  const settings = useRef({ keyName, instrument, sustain })
   useEffect(() => {
-    settings.current = { keyName, instrument }
-  }, [keyName, instrument])
+    settings.current = { keyName, instrument, sustain }
+  }, [keyName, instrument, sustain])
+
+  function releaseHeld(handId?: number) {
+    for (const [id, note] of heldNotes.current) {
+      if (handId !== undefined && id !== handId) continue
+      note.release()
+      heldNotes.current.delete(id)
+    }
+  }
+
+  function toggleSustain() {
+    if (sustain) releaseHeld()
+    setSustain(!sustain)
+  }
 
   useEffect(() => {
     if (!tracker) return
@@ -51,7 +67,8 @@ export default function App() {
     const video = videoRef.current!
     try {
       video.srcObject = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        // 60 fps where the camera allows it halves the wait for each new frame.
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
         audio: false,
       })
       await video.play()
@@ -65,18 +82,21 @@ export default function App() {
 
     try {
       const handTracker = await HandTracker.create(video)
-      handTracker.onTrigger = (gesture, hand) => {
+      handTracker.onTrigger = (gesture, hand, handId) => {
         // Left hand silently sets the key; right hand plays the syllable in that key.
         if (hand === 'left') {
           settings.current.keyName = gestureMappings[gesture]
           setKeyName(gestureMappings[gesture])
           return
         }
-        const { keyName, instrument } = settings.current
+        const { keyName, instrument, sustain } = settings.current
         const pitch = pitchFor(gestureMappings[gesture], keyName)
-        audio.play(instrument, pitch.midi, pitch.degree)
+        releaseHeld(handId)
+        const note = audio.play(instrument, pitch.midi, pitch.degree, sustain)
+        if (sustain) heldNotes.current.set(handId, note)
         setCurrent((c) => ({ pitch, hit: (c?.hit ?? 0) + 1 }))
       }
+      handTracker.onRelease = (_hand, handId) => releaseHeld(handId)
       handTracker.onActiveChange = setActive
       handTracker.onPresenceChange = setHandsPresent
       setTracker(handTracker)
@@ -105,6 +125,8 @@ export default function App() {
             keyName={keyName}
             instrument={instrument}
             onInstrumentChange={setInstrument}
+            sustain={sustain}
+            onToggleSustain={toggleSustain}
             guideOpen={guideOpen}
             onToggleGuide={() => setGuideOpen((o) => !o)}
             tracking={tracking}

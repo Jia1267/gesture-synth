@@ -30,10 +30,13 @@ export const gestureLabels: Record<GestureId, string> = {
 
 /** Timing and geometry thresholds for the recognizer. */
 export const recognition = {
-  /** A pose must be seen continuously this long before it counts. */
-  stableMs: 180,
+  /**
+   * A pose must be seen continuously this long before it counts. Lower = snappier, but
+   * in-between shapes while changing pose may slip through as stray notes.
+   */
+  stableMs: 100,
   /** The same gesture cannot fire again within this window. */
-  cooldownMs: 350,
+  cooldownMs: 200,
   /** Finger is "extended" when MCP→tip distance / finger path length exceeds this. */
   straightness: 0.8,
   /** …and the tip is this much farther from the wrist than the PIP joint. */

@@ -7,6 +7,9 @@ interface Props {
   keyName: NoteName
   instrument: Instrument
   onInstrumentChange: (instrument: Instrument) => void
+  /** Keep a note sounding for as long as its gesture is held. */
+  sustain: boolean
+  onToggleSustain: () => void
   guideOpen: boolean
   onToggleGuide: () => void
   tracking: 'loading' | 'live' | 'failed'
@@ -42,6 +45,24 @@ export function ControlPanel(props: Props) {
           ))}
         </select>
       </label>
+
+      <div className="field">
+        <span className="field__label" id="hold-label">Hold</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={props.sustain}
+          aria-labelledby="hold-label"
+          className="switch"
+          title="Keep the note sounding while the gesture is held"
+          onClick={props.onToggleSustain}
+        >
+          <span className="switch__track" aria-hidden="true">
+            <span className="switch__thumb" />
+          </span>
+          {props.sustain ? 'On' : 'Off'}
+        </button>
+      </div>
 
       <button
         type="button"

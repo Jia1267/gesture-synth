@@ -30,10 +30,14 @@ Open the printed localhost URL (camera access needs `localhost` or `https`), cli
 | OK sign            | A              | La                   |
 | Thumb + pinky      | B              | Ti                   |
 
-A pose must be held ~180 ms before it counts. The left hand switches the key silently
+A pose must be held ~100 ms before it counts. The left hand switches the key silently
 and the key stays until you pick another one; the right hand plays once per pose —
 change pose (or drop your hand) to play again. In key F the right hand plays
 F G A B♭ C D E; the guide and the note readout always show the real note names.
+
+**Hold** (panel switch): when on, a right-hand note keeps sounding for as long as you
+hold the pose, and fades out when you change pose or lower your hand. Piano still
+fades slowly on its own, since it is a struck instrument.
 
 Which hand is which comes from MediaPipe's handedness, shown as `L · KEY` / `R · NOTE`
 under each wrist. If those tags come out reversed on your camera, set
@@ -42,7 +46,8 @@ under each wrist. If those tags come out reversed on your camera, set
 ## Configure
 
 - **Gesture → note mapping, timing, thresholds:** `src/config/gestures.ts`
-  (`gestureMappings`, `recognition`).
+  (`gestureMappings`, `recognition`). `stableMs` trades speed for accuracy: lower
+  responds faster, but in-between shapes while changing pose can slip out as stray notes.
 - **Instrument presets:** `src/audio/instruments.ts` (pure Web Audio, no samples).
 - **Vocal samples:** drop `do.wav … ti.wav` into `public/audio/` — see the README there.
   Missing files fall back to a synthesized sung vowel.
